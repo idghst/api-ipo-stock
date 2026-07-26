@@ -5,12 +5,12 @@ from typing import Annotated
 import httpx
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from supabase import AsyncClient, AsyncClientOptions, acreate_client
 from supabase_auth.errors import AuthApiError, AuthRetryableError, AuthUnknownError
 from supabase_auth.types import User
 
 from app.core.config import Settings, get_settings
 from app.core.errors import ApiError
+from supabase import AsyncClient, AsyncClientOptions, acreate_client
 
 _bearer = HTTPBearer(auto_error=False)
 

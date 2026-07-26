@@ -6,13 +6,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.testclient import TestClient
-from supabase import AsyncClient, AsyncClientOptions
 from supabase_auth.errors import AuthApiError, AuthRetryableError, AuthUnknownError
 from supabase_auth.types import User, UserResponse
 
 from app.core.config import Settings
 from app.core.errors import ApiError
 from app.main import create_app
+from supabase import AsyncClient, AsyncClientOptions
 
 
 @pytest.fixture
