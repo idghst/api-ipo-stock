@@ -5,6 +5,7 @@
 .coverage
 .ruff_cache/
 .venv/
+.vercel/
 .worktrees/
 __pycache__/
 *.py[cod]

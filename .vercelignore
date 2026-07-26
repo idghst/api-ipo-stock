@@ -1,0 +1,9 @@
+/*
+!/.python-version
+!/pyproject.toml
+!/uv.lock
+!/vercel.json
+!/app/
+app/**/*
+!/app/**/
+!/app/**/*.py
