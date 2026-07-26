@@ -86,7 +86,9 @@ def test_readiness_probes_auth_health_with_publishable_key_and_timeout(
     ],
 )
 def test_probe_supabase_sanitizes_upstream_failures(
-    monkeypatch: pytest.MonkeyPatch, settings: Settings, failure: httpx.HTTPError | httpx.Response
+    monkeypatch: pytest.MonkeyPatch,
+    settings: Settings,
+    failure: httpx.HTTPError | httpx.Response,
 ) -> None:
     from app.api.routes.health import probe_supabase
 
