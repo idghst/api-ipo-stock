@@ -1,0 +1,20 @@
+[project]
+name = "fastapi-ipo-stock"
+version = "0.1.0"
+description = "IPO Stock FastAPI service"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+]
+
+[dependency-groups]
+dev = [
+    "httpx",
+    "pytest",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
