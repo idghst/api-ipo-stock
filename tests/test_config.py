@@ -99,6 +99,87 @@ def test_cors_rejects_wildcard() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "cors_origin",
+    [
+        "null",
+        "ftp://localhost:3000",
+        "http://user:password@localhost:3000",
+        "http://localhost:3000/api",
+        "http://localhost:3000/",
+        "http://localhost:3000?preview=true",
+        "http://localhost:3000#section",
+        "http:///missing-host",
+        "http://localhost\\evil.com",
+        "http://localhost:",
+        "http://.",
+        " http://localhost:3000",
+        "http://localhost:3000 ",
+        "http://localhost:3000\n",
+        "http://localhost:3000\x00",
+        "",
+    ],
+)
+def test_cors_rejects_non_origin_values(cors_origin: str) -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            CORS_ORIGINS=[cors_origin],
+            SUPABASE_URL="https://test.supabase.co",
+            SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
+        )
+
+
+@pytest.mark.parametrize(
+    "cors_origin",
+    [
+        "http://localhost:3000",
+        "http://127.0.0.1:8000",
+        "http://[::1]:8000",
+        "https://api.example.com:8443",
+    ],
+)
+def test_cors_allows_concrete_origins(cors_origin: str) -> None:
+    settings = Settings(
+        CORS_ORIGINS=[cors_origin],
+        SUPABASE_URL="https://test.supabase.co",
+        SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
+    )
+
+    assert settings.CORS_ORIGINS == [cors_origin]
+
+
+@pytest.mark.parametrize(
+    "supabase_url",
+    [
+        "https://user:password@test.supabase.co",
+        "https://test.supabase.co/rest/v1",
+        "https://test.supabase.co?preview=true",
+        "https://test.supabase.co#section",
+        "https://test.supabase.co\\evil.com",
+        "https://test.supabase.co:",
+        "https://.",
+        "https://test.supabase.co\n",
+        "https://test.supabase.co\x00",
+    ],
+)
+def test_supabase_url_rejects_non_origin_values(supabase_url: str) -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            SUPABASE_URL=supabase_url,
+            SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
+        )
+
+
+def test_production_allows_https_supabase_origin() -> None:
+    settings = Settings(
+        APP_ENV="production",
+        SUPABASE_URL="https://api.example.com:8443",
+        SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
+    )
+
+    assert str(settings.SUPABASE_URL) == "https://api.example.com:8443/"
+
+
 def test_publishable_key_must_not_be_blank() -> None:
     with pytest.raises(ValidationError):
         Settings(
