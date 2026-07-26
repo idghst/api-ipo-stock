@@ -2,6 +2,7 @@
 .env*
 !.env.example
 .pytest_cache/
+.coverage
 .ruff_cache/
 .venv/
 .worktrees/
