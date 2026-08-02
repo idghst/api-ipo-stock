@@ -11,6 +11,7 @@ from pydantic import (
     ValidationError,
     ValidationInfo,
     field_validator,
+    model_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -109,6 +110,7 @@ class Settings(BaseSettings):
     SUPABASE_PUBLISHABLE_KEY: SecretStr
     SUPABASE_SECRET_KEY: SecretStr | None = None
     SUPABASE_TIMEOUT_SECONDS: Annotated[float, Field(gt=0)] = 5.0
+    ADMIN_API_KEY: SecretStr | None = None
 
     app_name: ClassVar[str] = "IPO Stock API"
     supabase_schema: ClassVar[str] = "ipo_stock"
@@ -146,7 +148,34 @@ class Settings(BaseSettings):
         raw_value = value.get_secret_value() if isinstance(value, SecretStr) else value
         if isinstance(raw_value, str) and not raw_value.strip():
             return None
+        if isinstance(raw_value, str) and raw_value.startswith("sb_publishable_"):
+            raise ValueError("SUPABASE_SECRET_KEY must not be a publishable key")
         return value
+
+    @field_validator("ADMIN_API_KEY", mode="before")
+    @classmethod
+    def normalize_blank_admin_api_key(cls, value: object) -> object:
+        raw_value = value.get_secret_value() if isinstance(value, SecretStr) else value
+        if isinstance(raw_value, str) and not raw_value.strip():
+            return None
+        return value
+
+    @model_validator(mode="after")
+    def require_server_only_administrator_credentials_in_production(self) -> "Settings":
+        secret_key = self.SUPABASE_SECRET_KEY
+        if secret_key is not None and secret_key.get_secret_value() == (
+            self.SUPABASE_PUBLISHABLE_KEY.get_secret_value()
+        ):
+            raise ValueError(
+                "SUPABASE_SECRET_KEY must not equal SUPABASE_PUBLISHABLE_KEY"
+            )
+        if self.APP_ENV == "production" and (
+            secret_key is None or self.ADMIN_API_KEY is None
+        ):
+            raise ValueError(
+                "SUPABASE_SECRET_KEY and ADMIN_API_KEY are required in production"
+            )
+        return self
 
     @property
     def docs_enabled(self) -> bool:

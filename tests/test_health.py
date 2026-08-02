@@ -124,6 +124,8 @@ def test_production_disables_docs_and_openapi() -> None:
             APP_ENV="production",
             SUPABASE_URL="https://test.supabase.co",
             SUPABASE_PUBLISHABLE_KEY=SecretStr("sb_publishable_test"),
+            SUPABASE_SECRET_KEY=SecretStr("sb_secret_test"),
+            ADMIN_API_KEY=SecretStr("administrator-secret"),
         )
     )
     client = TestClient(app)

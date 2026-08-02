@@ -20,6 +20,8 @@ def test_production_disables_docs_by_default() -> None:
         APP_ENV="production",
         SUPABASE_URL="https://test.supabase.co",
         SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
+        SUPABASE_SECRET_KEY="sb_secret_test",
+        ADMIN_API_KEY="administrator-secret",
     )
 
     assert settings.docs_enabled is False
@@ -40,6 +42,8 @@ def test_docs_can_be_explicitly_enabled_in_production() -> None:
         ENABLE_DOCS=True,
         SUPABASE_URL="https://test.supabase.co",
         SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
+        SUPABASE_SECRET_KEY="sb_secret_test",
+        ADMIN_API_KEY="administrator-secret",
     )
 
     assert settings.docs_enabled is True
@@ -175,6 +179,8 @@ def test_production_allows_https_supabase_origin() -> None:
         APP_ENV="production",
         SUPABASE_URL="https://api.example.com:8443",
         SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
+        SUPABASE_SECRET_KEY="sb_secret_test",
+        ADMIN_API_KEY="administrator-secret",
     )
 
     assert str(settings.SUPABASE_URL) == "https://api.example.com:8443/"
@@ -196,6 +202,24 @@ def test_blank_optional_secret_becomes_none() -> None:
     )
 
     assert settings.SUPABASE_SECRET_KEY is None
+
+
+def test_publishable_key_cannot_be_used_as_server_secret() -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            SUPABASE_URL="https://test.supabase.co",
+            SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
+            SUPABASE_SECRET_KEY="sb_publishable_test",
+        )
+
+
+def test_production_requires_server_only_administrator_credentials() -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            APP_ENV="production",
+            SUPABASE_URL="https://test.supabase.co",
+            SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
+        )
 
 
 def test_settings_cache_can_be_cleared(monkeypatch: pytest.MonkeyPatch) -> None:

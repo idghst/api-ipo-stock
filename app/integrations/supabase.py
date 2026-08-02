@@ -1,9 +1,10 @@
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from secrets import compare_digest
 from typing import Annotated
 
 import httpx
-from fastapi import Depends
+from fastapi import Depends, Header
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from supabase_auth.errors import AuthApiError, AuthRetryableError, AuthUnknownError
 from supabase_auth.types import User
@@ -101,3 +102,24 @@ async def get_admin_client(
         yield client
     finally:
         await http_client.aclose()
+
+
+async def get_admin_api_client(
+    settings: Annotated[Settings, Depends(get_settings)],
+    admin_key: Annotated[str | None, Header(alias="X-Admin-Key")] = None,
+) -> AsyncIterator[AsyncClient]:
+    configured_key = settings.ADMIN_API_KEY
+    if configured_key is None:
+        raise ApiError(
+            503,
+            "administrator_authentication_unavailable",
+            "Administrator authentication is unavailable",
+        )
+    if admin_key is None or not compare_digest(
+        admin_key,
+        configured_key.get_secret_value(),
+    ):
+        raise ApiError(401, "invalid_admin_api_key", "Invalid administrator API key")
+
+    async for client in get_admin_client(settings):
+        yield client

@@ -1,8 +1,8 @@
 # fastapi-ipo-stock
 
-`ipo_stock` Supabase schema를 사용하는 FastAPI 서비스 템플릿입니다. Vercel에는
-Preview와 Production을 분리하고, 모든 데이터 요청은 Supabase Auth JWT와 RLS로
-제한합니다.
+`ipo_stock` Supabase schema를 사용하는 FastAPI 서비스입니다. Vercel에는 Preview와
+Production을 분리합니다. `/api/v1/auth/me`는 기존처럼 Supabase Auth JWT로 검증하고,
+IPO 관리 CRUD는 서버 전용 `X-Admin-Key`와 Supabase secret key client로만 처리합니다.
 
 ## Local development
 
@@ -23,8 +23,10 @@ CORS_ORIGINS=["http://localhost:3000"]
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_PUBLISHABLE_KEY=your_publishable_key
 SUPABASE_TIMEOUT_SECONDS=5
-# 서버 전용 작업에만 필요. 브라우저와 Vercel Preview에 노출 금지.
+# IPO 관리 CRUD에 필요. 브라우저와 클라이언트 번들에 절대 노출 금지.
 SUPABASE_SECRET_KEY=
+# 충분히 긴 난수. 예: openssl rand -hex 32
+ADMIN_API_KEY=
 ```
 
 ```bash
@@ -50,8 +52,11 @@ vercel dev
 
 1. Supabase Dashboard의 **API Settings → Exposed schemas**에 `ipo_stock`를 추가합니다.
 2. 필요한 Preview/Production 프로젝트 각각에 migration을 적용합니다.
-3. 테이블·뷰·함수마다 RLS를 켜고, 권한은 사용자 JWT 기반 정책으로 부여합니다.
-   `service_role`/secret key는 RLS를 우회하므로 일반 요청 경로에 사용하지 않습니다.
+3. `ipo_stock.ipo_stocks` migration은 RLS를 켜고 `PUBLIC`, `anon`,
+   `authenticated`의 schema/table 권한을 모두 회수합니다. RLS policy는 만들지 않으며,
+   `service_role`에만 table 권한을 부여합니다. 따라서 Data API를 브라우저에서 직접
+   호출하지 말고 이 API를 호출하는 관리페이지의 서버 route handler만 secret key를
+   사용해야 합니다.
 
 Supabase CLI를 프로젝트 루트에서 초기화·연결한 뒤 migration을 적용합니다. 실제
 project ref와 자격 증명은 CLI 프롬프트 또는 안전한 환경 변수로만 전달합니다.
@@ -82,6 +87,54 @@ curl -i \
 
 정상 요청에는 `id`, `email`만 반환합니다. 오류 응답도 `X-Request-ID`를 반환하므로
 장애 문의와 로그 검색에 그 값을 함께 사용하세요.
+
+## IPO stock admin API
+
+모든 IPO 관리 요청은 아래 헤더가 필요합니다. `ADMIN_API_KEY`와
+`SUPABASE_SECRET_KEY` 중 하나라도 없으면 운영 환경은 시작하지 않으며, development에서는
+관리 요청만 `503`으로 거부됩니다. 키가 틀리거나 없으면 동일한 `401` 오류를 반환합니다.
+
+```http
+X-Admin-Key: <ADMIN_API_KEY>
+```
+
+| Method | Path | Response |
+| --- | --- | --- |
+| `GET` | `/api/v1/ipo-stocks?limit=100&offset=0` | `{ "items": [...], "count": 42 }` |
+| `POST` | `/api/v1/ipo-stocks` | 생성된 IPO, `201` |
+| `GET` | `/api/v1/ipo-stocks/{id}` | IPO 1건 |
+| `PATCH` | `/api/v1/ipo-stocks/{id}` | 수정된 IPO |
+| `DELETE` | `/api/v1/ipo-stocks/{id}` | `204` |
+
+목록의 `limit`은 `1`~`200`이며 기본값은 `100`, `offset`은 `0` 이상입니다. request와
+response는 모두 camelCase JSON만 사용합니다. `companyName`은 필수이고 나머지 필드는
+선택입니다. `offerPrice`는 양의 정수 KRW, 날짜는 `YYYY-MM-DD`, `status`는 아래 값만
+허용합니다.
+
+```json
+{
+  "companyName": "예시 기업",
+  "ticker": "EXAMPLE",
+  "market": "KOSDAQ",
+  "offerPrice": 12000,
+  "subscriptionStart": "2026-08-10",
+  "subscriptionEnd": "2026-08-11",
+  "listingDate": "2026-08-20",
+  "status": "scheduled",
+  "memo": "메모"
+}
+```
+
+`status`: `scheduled`, `subscription_open`, `subscription_closed`, `listed`,
+`cancelled`. `PATCH`에서는 생략한 필드는 유지하고 `null`을 보낸 선택 필드는 지웁니다.
+빈 PATCH body, snake_case field, 잘못된 날짜 범위는 `422`; 존재하지 않는 ID는 `404`;
+이미 사용 중인 ticker는 `409` 오류 envelope를 반환합니다.
+
+```bash
+curl -i \
+  -H "X-Admin-Key: $ADMIN_API_KEY" \
+  http://127.0.0.1:8000/api/v1/ipo-stocks
+```
 
 ## CI
 
@@ -123,7 +176,8 @@ Vercel Dashboard에서 **같은 `fastapi-ipo-stock` 프로젝트의** Preview와
 | `SUPABASE_URL` | Preview Supabase URL | Production Supabase URL | 서비스별 별도 프로젝트 |
 | `SUPABASE_PUBLISHABLE_KEY` | Preview publishable key | Production publishable key | 요청 JWT 검증·RLS 호출 |
 | `SUPABASE_TIMEOUT_SECONDS` | `5` | `5` | 양수 초 단위 |
-| `SUPABASE_SECRET_KEY` | 서버 전용 필요 시만 | 서버 전용 필요 시만 | 일반 API 요청에 사용 금지 |
+| `SUPABASE_SECRET_KEY` | 필수 | 필수 | IPO CRUD용 서버 secret key; `sb_publishable_` 사용 불가 |
+| `ADMIN_API_KEY` | 필수 | 필수 | 긴 난수; 관리페이지 서버만 `X-Admin-Key`로 전달 |
 
 배포 전에 CLI 상태와 build 인자를 확인하고, Vercel 프로젝트
 `fastapi-ipo-stock`을 명시적으로 연결한 뒤 Preview 설정만 가져옵니다. Vercel link는
@@ -186,7 +240,10 @@ vercel rollback <deployment-url-or-id>
 2. Vercel Functions 로그에서 같은 request ID를 검색합니다.
 3. `500`이면 배포 환경 변수와 import 오류를, `503`이면 Supabase 상태·네트워크·timeout을
    확인합니다.
-4. `401`이면 브라우저가 보내는 access token과 해당 Supabase 프로젝트를 대조합니다.
-5. `403` 또는 빈 결과면 `ipo_stock`의 exposed schema·RLS policy·JWT claim을 확인합니다.
+4. `/auth/me`의 `401`이면 브라우저 access token과 해당 Supabase 프로젝트를 대조합니다.
+5. IPO CRUD의 `401`이면 관리페이지 서버의 `X-Admin-Key`만 확인합니다. 키 원문은 로그에
+   남기지 않습니다.
+6. `403` 또는 빈 결과면 `ipo_stock` exposed schema, `service_role` table grant, RLS 상태를
+   확인합니다. `anon`/`authenticated`에 권한 또는 policy를 추가하면 안 됩니다.
 
 키나 JWT 원문은 issue, 로그, 커밋에 넣지 않습니다.
