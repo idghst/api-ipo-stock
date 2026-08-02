@@ -100,7 +100,7 @@ def _require_http_origin(value: object, *, allow_root_path: bool) -> str:
 class Settings(BaseSettings):
     """Validated runtime configuration loaded from the environment."""
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra="ignore")
 
     APP_ENV: Literal["development", "test", "production"] = "development"
     LOG_LEVEL: str = "INFO"

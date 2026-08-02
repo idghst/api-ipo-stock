@@ -12,7 +12,7 @@ Python 3.12와 [uv](https://docs.astral.sh/uv/)가 필요합니다.
 uv sync --locked --dev
 ```
 
-`.env`를 로컬에만 만들고 실제 키는 절대 커밋하지 마세요. `CORS_ORIGINS`는 JSON
+`.env.local`을 로컬에만 만들고 실제 키는 절대 커밋하지 마세요. `CORS_ORIGINS`는 JSON
 배열이며 `*`를 사용할 수 없습니다.
 
 ```dotenv
