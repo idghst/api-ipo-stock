@@ -26,7 +26,7 @@ SUPABASE_TIMEOUT_SECONDS=5
 # IPO 관리 CRUD에 필요. 브라우저와 클라이언트 번들에 절대 노출 금지.
 SUPABASE_SECRET_KEY=
 # 충분히 긴 난수. 예: openssl rand -hex 32
-ADMIN_API_KEY=
+IPO_STOCK_API_KEY=
 ```
 
 ```bash
@@ -90,12 +90,12 @@ curl -i \
 
 ## IPO stock admin API
 
-모든 IPO 관리 요청은 아래 헤더가 필요합니다. `ADMIN_API_KEY`와
+모든 IPO 관리 요청은 아래 헤더가 필요합니다. `IPO_STOCK_API_KEY`와
 `SUPABASE_SECRET_KEY` 중 하나라도 없으면 운영 환경은 시작하지 않으며, development에서는
 관리 요청만 `503`으로 거부됩니다. 키가 틀리거나 없으면 동일한 `401` 오류를 반환합니다.
 
 ```http
-X-Admin-Key: <ADMIN_API_KEY>
+X-Admin-Key: <IPO_STOCK_API_KEY>
 ```
 
 | Method | Path | Response |
@@ -132,7 +132,7 @@ response는 모두 camelCase JSON만 사용합니다. `companyName`은 필수이
 
 ```bash
 curl -i \
-  -H "X-Admin-Key: $ADMIN_API_KEY" \
+  -H "X-Admin-Key: $IPO_STOCK_API_KEY" \
   http://127.0.0.1:8000/api/v1/ipo-stocks
 ```
 
@@ -177,7 +177,7 @@ Vercel Dashboard에서 **같은 `fastapi-ipo-stock` 프로젝트의** Preview와
 | `SUPABASE_PUBLISHABLE_KEY` | Preview publishable key | Production publishable key | 요청 JWT 검증·RLS 호출 |
 | `SUPABASE_TIMEOUT_SECONDS` | `5` | `5` | 양수 초 단위 |
 | `SUPABASE_SECRET_KEY` | 필수 | 필수 | IPO CRUD용 서버 secret key; `sb_publishable_` 사용 불가 |
-| `ADMIN_API_KEY` | 필수 | 필수 | 긴 난수; 관리페이지 서버만 `X-Admin-Key`로 전달 |
+| `IPO_STOCK_API_KEY` | 필수 | 필수 | 긴 난수; 관리페이지 서버만 `X-Admin-Key`로 전달 |
 
 배포 전에 CLI 상태와 build 인자를 확인하고, Vercel 프로젝트
 `fastapi-ipo-stock`을 명시적으로 연결한 뒤 Preview 설정만 가져옵니다. Vercel link는

@@ -129,7 +129,7 @@ def _app() -> object:
             SUPABASE_URL="https://test.supabase.co",
             SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
             SUPABASE_SECRET_KEY="sb_secret_test",
-            ADMIN_API_KEY="administrator-secret",
+            IPO_STOCK_API_KEY="administrator-secret",
         )
     )
 

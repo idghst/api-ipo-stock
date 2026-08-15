@@ -110,7 +110,7 @@ class Settings(BaseSettings):
     SUPABASE_PUBLISHABLE_KEY: SecretStr
     SUPABASE_SECRET_KEY: SecretStr | None = None
     SUPABASE_TIMEOUT_SECONDS: Annotated[float, Field(gt=0)] = 5.0
-    ADMIN_API_KEY: SecretStr | None = None
+    IPO_STOCK_API_KEY: SecretStr | None = None
 
     app_name: ClassVar[str] = "IPO Stock API"
     supabase_schema: ClassVar[str] = "ipo_stock"
@@ -152,9 +152,9 @@ class Settings(BaseSettings):
             raise ValueError("SUPABASE_SECRET_KEY must not be a publishable key")
         return value
 
-    @field_validator("ADMIN_API_KEY", mode="before")
+    @field_validator("IPO_STOCK_API_KEY", mode="before")
     @classmethod
-    def normalize_blank_admin_api_key(cls, value: object) -> object:
+    def normalize_blank_ipo_stock_api_key(cls, value: object) -> object:
         raw_value = value.get_secret_value() if isinstance(value, SecretStr) else value
         if isinstance(raw_value, str) and not raw_value.strip():
             return None
@@ -170,10 +170,10 @@ class Settings(BaseSettings):
                 "SUPABASE_SECRET_KEY must not equal SUPABASE_PUBLISHABLE_KEY"
             )
         if self.APP_ENV == "production" and (
-            secret_key is None or self.ADMIN_API_KEY is None
+            secret_key is None or self.IPO_STOCK_API_KEY is None
         ):
             raise ValueError(
-                "SUPABASE_SECRET_KEY and ADMIN_API_KEY are required in production"
+                "SUPABASE_SECRET_KEY and IPO_STOCK_API_KEY are required in production"
             )
         return self
 

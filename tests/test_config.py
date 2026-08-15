@@ -21,7 +21,7 @@ def test_production_disables_docs_by_default() -> None:
         SUPABASE_URL="https://test.supabase.co",
         SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
         SUPABASE_SECRET_KEY="sb_secret_test",
-        ADMIN_API_KEY="administrator-secret",
+        IPO_STOCK_API_KEY="administrator-secret",
     )
 
     assert settings.docs_enabled is False
@@ -43,7 +43,7 @@ def test_docs_can_be_explicitly_enabled_in_production() -> None:
         SUPABASE_URL="https://test.supabase.co",
         SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
         SUPABASE_SECRET_KEY="sb_secret_test",
-        ADMIN_API_KEY="administrator-secret",
+        IPO_STOCK_API_KEY="administrator-secret",
     )
 
     assert settings.docs_enabled is True
@@ -180,7 +180,7 @@ def test_production_allows_https_supabase_origin() -> None:
         SUPABASE_URL="https://api.example.com:8443",
         SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
         SUPABASE_SECRET_KEY="sb_secret_test",
-        ADMIN_API_KEY="administrator-secret",
+        IPO_STOCK_API_KEY="administrator-secret",
     )
 
     assert str(settings.SUPABASE_URL) == "https://api.example.com:8443/"

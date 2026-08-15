@@ -108,7 +108,7 @@ async def get_admin_api_client(
     settings: Annotated[Settings, Depends(get_settings)],
     admin_key: Annotated[str | None, Header(alias="X-Admin-Key")] = None,
 ) -> AsyncIterator[AsyncClient]:
-    configured_key = settings.ADMIN_API_KEY
+    configured_key = settings.IPO_STOCK_API_KEY
     if configured_key is None:
         raise ApiError(
             503,
