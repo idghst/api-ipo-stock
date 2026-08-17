@@ -62,6 +62,6 @@ a per-session step (heavy), intentionally kept out of the startup update script.
    `PUBLISHABLE_KEY` / `SECRET_KEY` from `supabase status`.
 3. Point `.env.local` at it: `SUPABASE_URL=http://127.0.0.1:54321`,
    `SUPABASE_PUBLISHABLE_KEY=<PUBLISHABLE_KEY>`, `SUPABASE_SECRET_KEY=<SECRET_KEY>`,
-   `ADMIN_API_KEY=<random>`. The Data API default schema for this service is `ipo_stock`
+   `IPO_STOCK_API_KEY=<random>`. The Data API default schema for this service is `ipo_stock`
    (already exposed in `supabase/config.toml`); never call it from a browser with the
    anon key — only the server uses the secret key.

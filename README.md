@@ -13,22 +13,8 @@ Python 3.12와 [uv](https://docs.astral.sh/uv/)가 필요합니다.
 uv sync --locked --dev
 ```
 
-`.env.local`을 로컬에만 만들고 실제 키는 절대 커밋하지 마세요. `CORS_ORIGINS`는 JSON
-배열이며 `*`를 사용할 수 없습니다.
-
-```dotenv
-APP_ENV=development
-LOG_LEVEL=INFO
-ENABLE_DOCS=true
-CORS_ORIGINS=["http://localhost:3000"]
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_PUBLISHABLE_KEY=your_publishable_key
-SUPABASE_TIMEOUT_SECONDS=5
-# IPO 목록/상세에 필요. 브라우저와 클라이언트 번들에 절대 노출 금지.
-SUPABASE_SECRET_KEY=
-# 충분히 긴 난수. 예: openssl rand -hex 32
-IPO_STOCK_API_KEY=
-```
+`.env.example`을 `.env.local`로 복사한 뒤 실제 키를 넣으세요. 실제 키는 절대
+커밋하지 마세요. `CORS_ORIGINS`는 JSON 배열이며 `*`를 사용할 수 없습니다.
 
 ```bash
 uv run uvicorn app.main:app --reload
