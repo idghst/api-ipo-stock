@@ -7,6 +7,7 @@ from app.core.config import (
     get_settings,
     resolve_app_env,
 )
+from app.core.url_validation import require_http_origin
 
 
 def test_schema_cannot_be_overridden(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -42,6 +43,8 @@ def test_removed_env_fields_are_not_settings() -> None:
     assert "APP_ENV" not in Settings.model_fields
     assert "LOG_LEVEL" not in Settings.model_fields
     assert "ENABLE_DOCS" not in Settings.model_fields
+    assert "CORS_ORIGINS" not in Settings.model_fields
+    assert "SUPABASE_TIMEOUT_SECONDS" not in Settings.model_fields
 
 
 def test_app_name_is_fixed() -> None:
@@ -53,13 +56,13 @@ def test_app_name_is_fixed() -> None:
     assert settings.app_name == "IPO Stock API"
 
 
-def test_timeout_must_be_positive() -> None:
-    with pytest.raises(ValidationError):
-        Settings(
-            SUPABASE_TIMEOUT_SECONDS=0,
-            SUPABASE_URL="https://test.supabase.co",
-            SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
-        )
+def test_timeout_is_fixed() -> None:
+    settings = Settings(
+        SUPABASE_URL="https://test.supabase.co",
+        SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
+    )
+
+    assert settings.SUPABASE_TIMEOUT_SECONDS == 5.0
 
 
 def test_local_allows_http_supabase_url() -> None:
@@ -80,22 +83,19 @@ def test_supabase_url_must_be_http_url(supabase_url: str) -> None:
         )
 
 
-def test_cors_defaults_to_no_origins() -> None:
+def test_cors_origins_are_fixed() -> None:
     settings = Settings(
         SUPABASE_URL="https://test.supabase.co",
         SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
     )
 
-    assert settings.CORS_ORIGINS == []
+    assert settings.CORS_ORIGINS == ["http://localhost:3000"]
+    assert "*" not in settings.CORS_ORIGINS
 
 
 def test_cors_rejects_wildcard() -> None:
-    with pytest.raises(ValidationError):
-        Settings(
-            CORS_ORIGINS=["*"],
-            SUPABASE_URL="https://test.supabase.co",
-            SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
-        )
+    with pytest.raises(ValueError):
+        require_http_origin("*", allow_root_path=False)
 
 
 @pytest.mark.parametrize(
@@ -120,12 +120,8 @@ def test_cors_rejects_wildcard() -> None:
     ],
 )
 def test_cors_rejects_non_origin_values(cors_origin: str) -> None:
-    with pytest.raises(ValidationError):
-        Settings(
-            CORS_ORIGINS=[cors_origin],
-            SUPABASE_URL="https://test.supabase.co",
-            SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
-        )
+    with pytest.raises(ValueError):
+        require_http_origin(cors_origin, allow_root_path=False)
 
 
 @pytest.mark.parametrize(
@@ -138,13 +134,7 @@ def test_cors_rejects_non_origin_values(cors_origin: str) -> None:
     ],
 )
 def test_cors_allows_concrete_origins(cors_origin: str) -> None:
-    settings = Settings(
-        CORS_ORIGINS=[cors_origin],
-        SUPABASE_URL="https://test.supabase.co",
-        SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
-    )
-
-    assert settings.CORS_ORIGINS == [cors_origin]
+    assert require_http_origin(cors_origin, allow_root_path=False) == cors_origin
 
 
 @pytest.mark.parametrize(
@@ -221,10 +211,9 @@ def test_settings_cache_can_be_cleared(monkeypatch: pytest.MonkeyPatch) -> None:
     clear_settings_cache()
     monkeypatch.setenv("SUPABASE_URL", "https://test.supabase.co")
     monkeypatch.setenv("SUPABASE_PUBLISHABLE_KEY", "sb_publishable_test")
-    monkeypatch.setenv("SUPABASE_TIMEOUT_SECONDS", "5")
     first = get_settings()
-    monkeypatch.setenv("SUPABASE_TIMEOUT_SECONDS", "9")
+    monkeypatch.setenv("SUPABASE_URL", "https://other.supabase.co")
     assert get_settings() is first
 
     clear_settings_cache()
-    assert get_settings().SUPABASE_TIMEOUT_SECONDS == 9.0
+    assert str(get_settings().SUPABASE_URL) == "https://other.supabase.co/"

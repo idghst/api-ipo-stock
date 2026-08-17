@@ -14,7 +14,7 @@ uv sync --locked --dev
 ```
 
 `.env.example`을 `.env.local`로 복사한 뒤 실제 키를 넣으세요. 실제 키는 절대
-커밋하지 마세요. `CORS_ORIGINS`는 JSON 배열이며 `*`를 사용할 수 없습니다.
+커밋하지 마세요.
 
 ```bash
 uv run uvicorn app.main:app --reload
@@ -143,10 +143,8 @@ localhost/127.0.0.1이면 development, 그 외는 production입니다. productio
 
 | Variable | Preview | Production | Notes |
 | --- | --- | --- | --- |
-| `CORS_ORIGINS` | Preview UI origin만 | Production UI origin만 | JSON 배열, wildcard 금지 |
 | `SUPABASE_URL` | Preview Supabase URL | Production Supabase URL | 서비스별 별도 프로젝트 |
 | `SUPABASE_PUBLISHABLE_KEY` | Preview publishable key | Production publishable key | 요청 JWT 검증·RLS 호출 |
-| `SUPABASE_TIMEOUT_SECONDS` | `5` | `5` | 양수 초 단위 |
 | `SUPABASE_SECRET_KEY` | 필수 | 필수 | IPO 목록/상세용 서버 secret key; `sb_publishable_` 사용 불가 |
 | `IPO_STOCK_API_KEY` | 필수 | 필수 | 긴 난수; 관리페이지 서버만 `X-Admin-Key`로 전달 |
 

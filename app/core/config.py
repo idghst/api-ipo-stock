@@ -1,8 +1,8 @@
 from functools import lru_cache
-from typing import Annotated, ClassVar, Literal
+from typing import ClassVar, Literal
 from urllib.parse import urlsplit
 
-from pydantic import AnyHttpUrl, Field, SecretStr, field_validator, model_validator
+from pydantic import AnyHttpUrl, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.url_validation import require_http_origin
@@ -33,20 +33,17 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra="ignore")
 
-    CORS_ORIGINS: list[str] = []
     SUPABASE_URL: AnyHttpUrl
     SUPABASE_PUBLISHABLE_KEY: SecretStr
     SUPABASE_SECRET_KEY: SecretStr | None = None
-    SUPABASE_TIMEOUT_SECONDS: Annotated[float, Field(gt=0)] = 5.0
     IPO_STOCK_API_KEY: SecretStr | None = None
 
     app_name: ClassVar[str] = "IPO Stock API"
     supabase_schema: ClassVar[str] = "ipo_stock"
-
-    @field_validator("CORS_ORIGINS")
-    @classmethod
-    def require_concrete_cors_origins(cls, values: list[str]) -> list[str]:
-        return [require_http_origin(value, allow_root_path=False) for value in values]
+    CORS_ORIGINS: ClassVar[list[str]] = [
+        require_http_origin("http://localhost:3000", allow_root_path=False)
+    ]
+    SUPABASE_TIMEOUT_SECONDS: ClassVar[float] = 5.0
 
     @field_validator("SUPABASE_URL", mode="before")
     @classmethod

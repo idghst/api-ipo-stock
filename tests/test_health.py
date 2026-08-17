@@ -14,7 +14,6 @@ def settings() -> Settings:
     return Settings(
         SUPABASE_URL="https://test.supabase.co",
         SUPABASE_PUBLISHABLE_KEY=SecretStr("sb_publishable_test"),
-        SUPABASE_TIMEOUT_SECONDS=2.5,
     )
 
 
@@ -74,7 +73,7 @@ def test_readiness_probes_auth_health_with_publishable_key_and_timeout(
     assert observed == {
         "url": "https://test.supabase.co/auth/v1/health",
         "headers": {"apikey": "sb_publishable_test"},
-        "timeout": 2.5,
+        "timeout": 5.0,
     }
 
 
@@ -183,13 +182,12 @@ def test_production_host_rejects_http_supabase_url() -> None:
 
 
 def test_cors_allows_only_configured_origin(settings: Settings) -> None:
-    settings.CORS_ORIGINS = ["https://app.example.com"]
     client = TestClient(create_app(settings))
 
     allowed = client.options(
         "/health/live",
         headers={
-            "Origin": "https://app.example.com",
+            "Origin": "http://localhost:3000",
             "Access-Control-Request-Method": "GET",
         },
     )
@@ -201,5 +199,5 @@ def test_cors_allows_only_configured_origin(settings: Settings) -> None:
         },
     )
 
-    assert allowed.headers["access-control-allow-origin"] == "https://app.example.com"
+    assert allowed.headers["access-control-allow-origin"] == "http://localhost:3000"
     assert denied.status_code == 400
