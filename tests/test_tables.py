@@ -17,6 +17,7 @@ from tests.test_ipo_stocks import (
 
 IPO_TABLE = {
     "name": "ipo_stocks",
+    "kind": "table",
     "columns": [
         {"name": "id", "type": "uuid", "nullable": False, "primary_key": True},
         {
@@ -31,6 +32,7 @@ IPO_TABLE = {
 }
 IPO_TABLE_JSON = {
     "name": "ipo_stocks",
+    "kind": "table",
     "columns": [
         {"name": "id", "type": "uuid", "nullable": False, "primaryKey": True},
         {
@@ -440,13 +442,35 @@ def test_get_row_returns_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
     assert response.json()["code"] == "row_not_found"
 
 
-def test_list_rows_requires_single_primary_key(
+def test_list_rows_uses_id_when_primary_key_is_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     table = {
-        "name": "ipo_stocks",
+        "name": "v_offerings",
+        "kind": "view",
         "columns": [
-            {"name": "id", "type": "uuid", "nullable": False, "primary_key": False}
+            {"name": "id", "type": "bigint", "nullable": True, "primary_key": False}
+        ],
+    }
+    client, fake = _rpc_client(
+        monkeypatch,
+        FakeResponse([{"id": 1}], count=1),
+        rpc_responses=[FakeResponse([table])],
+    )
+
+    response = client.get("/api/v1/tables/v_offerings/rows", headers=ADMIN)
+
+    assert response.status_code == 200
+    assert response.json() == {"items": [{"id": 1}], "count": 1}
+    assert fake.queries[0].ordering == [("id", False, None)]
+
+
+def test_view_writes_are_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    table = {
+        "name": "v_offerings",
+        "kind": "view",
+        "columns": [
+            {"name": "id", "type": "bigint", "nullable": True, "primary_key": False}
         ],
     }
     client, fake = _rpc_client(
@@ -454,11 +478,169 @@ def test_list_rows_requires_single_primary_key(
         rpc_responses=[FakeResponse([table])],
     )
 
-    response = client.get("/api/v1/tables/ipo_stocks/rows", headers=ADMIN)
+    response = client.post(
+        "/api/v1/tables/v_offerings/rows",
+        headers=ADMIN,
+        json={"id": 1},
+    )
 
     assert response.status_code == 422
-    assert response.json()["code"] == "unsupported_primary_key"
+    assert response.json()["code"] == "read_only_relation"
     assert fake.queries == []
+
+
+def test_composite_primary_key_row_crud(monkeypatch: pytest.MonkeyPatch) -> None:
+    table = {
+        "name": "offering_underwriters",
+        "kind": "table",
+        "columns": [
+            {
+                "name": "offering_id",
+                "type": "bigint",
+                "nullable": False,
+                "primary_key": True,
+            },
+            {
+                "name": "underwriter_id",
+                "type": "bigint",
+                "nullable": False,
+                "primary_key": True,
+            },
+            {"name": "role", "type": "text", "nullable": False, "primary_key": True},
+        ],
+    }
+    row = {"offering_id": 10, "underwriter_id": 3, "role": "주관"}
+    client, fake = _rpc_client(
+        monkeypatch,
+        FakeResponse([row]),
+        FakeResponse([row]),
+        rpc_responses=[FakeResponse([table]), FakeResponse([table])],
+    )
+
+    found = client.get(
+        "/api/v1/tables/offering_underwriters/rows/10|3|주관",
+        headers=ADMIN,
+    )
+    updated = client.patch(
+        "/api/v1/tables/offering_underwriters/rows/10|3|주관",
+        headers=ADMIN,
+        json={"role": "인수"},
+    )
+
+    assert found.status_code == 200
+    assert found.json() == {
+        "offeringId": 10,
+        "underwriterId": 3,
+        "role": "주관",
+    }
+    assert fake.queries[0].filters == [
+        ("offering_id", "10"),
+        ("underwriter_id", "3"),
+        ("role", "주관"),
+    ]
+    assert updated.status_code == 200
+    assert fake.queries[1].payload == {"role": "인수"}
+
+
+def test_composite_row_id_must_match_primary_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    table = {
+        "name": "offering_underwriters",
+        "kind": "table",
+        "columns": [
+            {
+                "name": "offering_id",
+                "type": "bigint",
+                "nullable": False,
+                "primary_key": True,
+            },
+            {
+                "name": "underwriter_id",
+                "type": "bigint",
+                "nullable": False,
+                "primary_key": True,
+            },
+        ],
+    }
+    client, fake = _rpc_client(
+        monkeypatch,
+        rpc_responses=[FakeResponse([table])],
+    )
+
+    response = client.get(
+        "/api/v1/tables/offering_underwriters/rows/10",
+        headers=ADMIN,
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "invalid_row_id"
+    assert fake.queries == []
+
+
+def test_routines_list_and_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    client, fake = _rpc_client(
+        monkeypatch,
+        rpc_responses=[
+            FakeResponse(
+                [
+                    {
+                        "name": "backfill_batch",
+                        "args": "payload json",
+                        "result": "TABLE(n_off bigint, n_ou bigint)",
+                    }
+                ]
+            ),
+            FakeResponse(
+                [
+                    {
+                        "name": "backfill_batch",
+                        "args": "payload json",
+                        "result": "TABLE(n_off bigint, n_ou bigint)",
+                    }
+                ]
+            ),
+            FakeResponse([{"n_off": 2, "n_ou": 1}]),
+            FakeResponse(
+                [
+                    {
+                        "name": "backfill_batch",
+                        "args": "payload json",
+                        "result": "TABLE(n_off bigint, n_ou bigint)",
+                    }
+                ]
+            ),
+        ],
+    )
+
+    listed = client.get("/api/v1/routines", headers=ADMIN)
+    called = client.post(
+        "/api/v1/routines/backfill_batch",
+        headers=ADMIN,
+        json={"payload": [{"sourceNo": "1"}]},
+    )
+    missing = client.post(
+        "/api/v1/routines/missing_fn",
+        headers=ADMIN,
+        json={},
+    )
+
+    assert listed.status_code == 200
+    assert listed.json() == {
+        "items": [
+            {
+                "name": "backfill_batch",
+                "args": "payload json",
+                "result": "TABLE(n_off bigint, n_ou bigint)",
+            }
+        ]
+    }
+    assert called.status_code == 200
+    assert called.json() == [{"nOff": 2, "nOu": 1}]
+    assert fake.rpc_calls[2].fn == "backfill_batch"
+    assert fake.rpc_calls[2].params == {"payload": [{"sourceNo": "1"}]}
+    assert missing.status_code == 404
+    assert missing.json()["code"] == "routine_not_found"
 
 
 def test_list_rows_rejects_missing_count(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -517,6 +699,17 @@ def test_schema_admin_migration_keeps_functions_service_role_only() -> None:
     assert (
         "grant execute on function ipo_stock.schema_list_tables() to service_role;"
         in migration
+    )
+    hyphen = next(
+        (Path(__file__).parents[1] / "supabase" / "migrations").glob(
+            "*_add_ipo_stock_hyphen_schema_admin.sql"
+        )
+    ).read_text()
+    assert 'create or replace function "ipo-stock".schema_list_tables()' in hyphen
+    assert 'create or replace function "ipo-stock".schema_list_routines()' in hyphen
+    assert (
+        'revoke all on function "ipo-stock".schema_list_routines() from public, anon, authenticated;'
+        in hyphen
     )
 
 

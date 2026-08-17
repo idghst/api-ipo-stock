@@ -1,6 +1,6 @@
 # fastapi-ipo-stock
 
-`ipo_stock` Supabase schema를 사용하는 FastAPI 서비스입니다. Vercel에는 Preview와
+`ipo-stock` Supabase schema를 사용하는 FastAPI 서비스입니다. Vercel에는 Preview와
 Production을 분리합니다. `/api/v1/auth/me`는 기존처럼 Supabase Auth JWT로 검증하고,
 IPO 관리 CRUD는 서버 전용 `X-Admin-Key`와 Supabase secret key client로만 처리합니다.
 
@@ -48,11 +48,11 @@ vercel dev
 ## Supabase setup
 
 서비스별로 별도 Supabase 프로젝트를 사용합니다. 이 서비스의 PostgREST 기본
-스키마는 `ipo_stock`이며, `public`에 업무 테이블을 만들지 않습니다.
+스키마는 `ipo-stock`이며, `public`에 업무 테이블을 만들지 않습니다.
 
-1. Supabase Dashboard의 **API Settings → Exposed schemas**에 `ipo_stock`를 추가합니다.
+1. Supabase Dashboard의 **API Settings → Exposed schemas**에 `ipo-stock`를 추가합니다.
 2. 필요한 Preview/Production 프로젝트 각각에 migration을 적용합니다.
-3. `ipo_stock.ipo_stocks` migration은 RLS를 켜고 `PUBLIC`, `anon`,
+3. 레거시 `ipo_stock.ipo_stocks` migration은 RLS를 켜고 `PUBLIC`, `anon`,
    `authenticated`의 schema/table 권한을 모두 회수합니다. RLS policy는 만들지 않으며,
    `service_role`에만 table 권한을 부여합니다. 따라서 Data API를 브라우저에서 직접
    호출하지 말고 이 API를 호출하는 관리페이지의 서버 route handler만 secret key를
@@ -105,7 +105,7 @@ X-Admin-Key: <IPO_STOCK_API_KEY>
 | `GET` | `/api/v1/ipo-stocks/{id}` | IPO 1건 |
 | `PATCH` | `/api/v1/ipo-stocks/{id}` | 수정된 IPO |
 | `DELETE` | `/api/v1/ipo-stocks/{id}` | `204` |
-| `GET` | `/api/v1/tables` | `ipo_stock` 테이블·컬럼 목록 |
+| `GET` | `/api/v1/tables` | `ipo-stock` 테이블·뷰·컬럼 목록 |
 | `GET` | `/api/v1/tables/{table}` | 테이블 1개 |
 | `POST` | `/api/v1/tables/{table}/columns` | 컬럼 추가, `201` |
 | `DELETE` | `/api/v1/tables/{table}/columns/{column}` | 컬럼 삭제 |
@@ -114,8 +114,11 @@ X-Admin-Key: <IPO_STOCK_API_KEY>
 | `GET` | `/api/v1/tables/{table}/rows/{id}` | row 1건 |
 | `PATCH` | `/api/v1/tables/{table}/rows/{id}` | 수정된 row |
 | `DELETE` | `/api/v1/tables/{table}/rows/{id}` | `204` |
+| `GET` | `/api/v1/routines` | 스키마 함수 목록 |
+| `POST` | `/api/v1/routines/{name}` | 함수 호출 결과 |
 
-`/tables`는 `ipo_stock` 스키마의 모든 테이블에 대해 동작합니다. 컬럼 추가 타입은
+`/tables`는 `ipo-stock` 스키마의 테이블과 뷰에 대해 동작합니다. 뷰는 읽기만
+가능합니다. 복합 PK는 `row_id`를 `값1|값2|값3` 순서로 넘깁니다. 컬럼 추가 타입은
 `text`, `integer`, `bigint`, `boolean`, `date`, `timestamptz`, `numeric`, `uuid`,
 `jsonb`만 허용합니다. PK 컬럼은 삭제할 수 없습니다. 컬럼 추가/삭제 후 PostgREST
 스키마 캐시를 갱신합니다. 이 RPC는 migration 적용이 필요합니다.
@@ -261,7 +264,7 @@ vercel rollback <deployment-url-or-id>
 4. `/auth/me`의 `401`이면 브라우저 access token과 해당 Supabase 프로젝트를 대조합니다.
 5. IPO CRUD의 `401`이면 관리페이지 서버의 `X-Admin-Key`만 확인합니다. 키 원문은 로그에
    남기지 않습니다.
-6. `403` 또는 빈 결과면 `ipo_stock` exposed schema, `service_role` table grant, RLS 상태를
+6. `403` 또는 빈 결과면 `ipo-stock` exposed schema, `service_role` table grant, RLS 상태를
    확인합니다. `anon`/`authenticated`에 권한 또는 policy를 추가하면 안 됩니다.
 
 키나 JWT 원문은 issue, 로그, 커밋에 넣지 않습니다.

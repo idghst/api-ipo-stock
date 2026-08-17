@@ -67,7 +67,10 @@ alter default privileges in schema ipo_stock
 def test_local_data_api_exposes_ipo_stock_schema() -> None:
     config = Path(__file__).parents[2] / "supabase" / "config.toml"
 
-    assert 'schemas = ["public", "graphql_public", "ipo_stock"]' in config.read_text()
+    assert (
+        'schemas = ["public", "graphql_public", "ipo_stock", "ipo-stock"]'
+        in config.read_text()
+    )
 
 
 def test_local_supabase_project_id_is_unique_to_ipo_stock_service() -> None:

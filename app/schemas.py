@@ -155,11 +155,27 @@ class ColumnOut(BaseModel):
     primary_key: bool = Field(serialization_alias="primaryKey")
 
 
+RelationKind = Literal["table", "view"]
+
+
 class TableOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
+    kind: RelationKind = "table"
     columns: list[ColumnOut]
+
+
+class RoutineOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    args: str
+    result: str
+
+
+class RoutineListOut(BaseModel):
+    items: list[RoutineOut]
 
 
 class TableListOut(BaseModel):
