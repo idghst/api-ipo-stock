@@ -11,16 +11,14 @@ from app.middleware.request_context import RequestContextMiddleware
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
-    configure_logging(settings.LOG_LEVEL)
+    configure_logging()
     app = FastAPI(
         title=settings.app_name,
         description=(
             "IPO 목록/상세는 GET only. 데이터는 ipo_stock.v_offerings SELECT."
         ),
-        docs_url="/docs" if settings.docs_enabled else None,
-        redoc_url="/redoc" if settings.docs_enabled else None,
-        openapi_url="/openapi.json" if settings.docs_enabled else None,
     )
+    app.state.settings = settings
     app.dependency_overrides[get_settings] = lambda: settings
     if settings.CORS_ORIGINS:
         app.add_middleware(

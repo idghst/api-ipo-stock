@@ -1,17 +1,31 @@
 from functools import lru_cache
 from typing import Annotated, ClassVar, Literal
+from urllib.parse import urlsplit
 
-from pydantic import (
-    AnyHttpUrl,
-    Field,
-    SecretStr,
-    ValidationInfo,
-    field_validator,
-    model_validator,
-)
+from pydantic import AnyHttpUrl, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.url_validation import require_http_origin
+
+type AppEnv = Literal["development", "test", "production"]
+
+
+def resolve_app_env(host: str = "", url: str = "") -> AppEnv:
+    """Host/URL hostname에 test → test, dev|localhost|127.0.0.1 → development, 그 외 production."""
+
+    parts = [host]
+    if url:
+        parsed = urlsplit(url)
+        if parsed.hostname:
+            parts.append(parsed.hostname)
+        if parsed.netloc:
+            parts.append(parsed.netloc)
+    haystack = " ".join(parts).lower()
+    if "test" in haystack:
+        return "test"
+    if "dev" in haystack or "localhost" in haystack or "127.0.0.1" in haystack:
+        return "development"
+    return "production"
 
 
 class Settings(BaseSettings):
@@ -19,9 +33,6 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra="ignore")
 
-    APP_ENV: Literal["development", "test", "production"] = "development"
-    LOG_LEVEL: str = "INFO"
-    ENABLE_DOCS: bool | None = None
     CORS_ORIGINS: list[str] = []
     SUPABASE_URL: AnyHttpUrl
     SUPABASE_PUBLISHABLE_KEY: SecretStr
@@ -41,15 +52,6 @@ class Settings(BaseSettings):
     @classmethod
     def require_supabase_origin(cls, value: object) -> object:
         return require_http_origin(value, allow_root_path=True)
-
-    @field_validator("SUPABASE_URL")
-    @classmethod
-    def require_https_supabase_in_production(
-        cls, value: AnyHttpUrl, info: ValidationInfo
-    ) -> AnyHttpUrl:
-        if info.data.get("APP_ENV") == "production" and value.scheme != "https":
-            raise ValueError("SUPABASE_URL must use HTTPS in production")
-        return value
 
     @field_validator("SUPABASE_PUBLISHABLE_KEY", mode="before")
     @classmethod
@@ -78,7 +80,7 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
-    def require_server_only_administrator_credentials_in_production(self) -> "Settings":
+    def reject_matching_publishable_and_secret_keys(self) -> "Settings":
         secret_key = self.SUPABASE_SECRET_KEY
         if secret_key is not None and secret_key.get_secret_value() == (
             self.SUPABASE_PUBLISHABLE_KEY.get_secret_value()
@@ -86,21 +88,7 @@ class Settings(BaseSettings):
             raise ValueError(
                 "SUPABASE_SECRET_KEY must not equal SUPABASE_PUBLISHABLE_KEY"
             )
-        if self.APP_ENV == "production" and (
-            secret_key is None or self.IPO_STOCK_API_KEY is None
-        ):
-            raise ValueError(
-                "SUPABASE_SECRET_KEY and IPO_STOCK_API_KEY are required in production"
-            )
         return self
-
-    @property
-    def docs_enabled(self) -> bool:
-        return (
-            self.ENABLE_DOCS
-            if self.ENABLE_DOCS is not None
-            else self.APP_ENV != "production"
-        )
 
 
 @lru_cache

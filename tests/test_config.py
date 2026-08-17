@@ -1,7 +1,12 @@
 import pytest
 from pydantic import ValidationError
 
-from app.core.config import Settings, clear_settings_cache, get_settings
+from app.core.config import (
+    Settings,
+    clear_settings_cache,
+    get_settings,
+    resolve_app_env,
+)
 
 
 def test_schema_cannot_be_overridden(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -15,16 +20,28 @@ def test_schema_cannot_be_overridden(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.supabase_schema == "ipo_stock"
 
 
-def test_production_disables_docs_by_default() -> None:
-    settings = Settings(
-        APP_ENV="production",
-        SUPABASE_URL="https://test.supabase.co",
-        SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
-        SUPABASE_SECRET_KEY="sb_secret_test",
-        IPO_STOCK_API_KEY="administrator-secret",
-    )
+@pytest.mark.parametrize(
+    ("host", "url", "expected"),
+    [
+        ("testserver", "http://testserver/docs", "test"),
+        ("api-test.vercel.app", "", "test"),
+        ("", "https://ipo-test.example.com/health", "test"),
+        ("dev.example.com", "", "development"),
+        ("localhost:8000", "http://localhost:8000/", "development"),
+        ("127.0.0.1:8000", "", "development"),
+        ("api.example.com", "https://api.example.com/docs", "production"),
+        ("fastapi-ipo-stock.vercel.app", "", "production"),
+        ("test-dev.example.com", "", "test"),
+    ],
+)
+def test_resolve_app_env_from_host_and_url(host: str, url: str, expected: str) -> None:
+    assert resolve_app_env(host, url) == expected
 
-    assert settings.docs_enabled is False
+
+def test_removed_env_fields_are_not_settings() -> None:
+    assert "APP_ENV" not in Settings.model_fields
+    assert "LOG_LEVEL" not in Settings.model_fields
+    assert "ENABLE_DOCS" not in Settings.model_fields
 
 
 def test_app_name_is_fixed() -> None:
@@ -36,33 +53,11 @@ def test_app_name_is_fixed() -> None:
     assert settings.app_name == "IPO Stock API"
 
 
-def test_docs_can_be_explicitly_enabled_in_production() -> None:
-    settings = Settings(
-        APP_ENV="production",
-        ENABLE_DOCS=True,
-        SUPABASE_URL="https://test.supabase.co",
-        SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
-        SUPABASE_SECRET_KEY="sb_secret_test",
-        IPO_STOCK_API_KEY="administrator-secret",
-    )
-
-    assert settings.docs_enabled is True
-
-
 def test_timeout_must_be_positive() -> None:
     with pytest.raises(ValidationError):
         Settings(
             SUPABASE_TIMEOUT_SECONDS=0,
             SUPABASE_URL="https://test.supabase.co",
-            SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
-        )
-
-
-def test_production_rejects_http_supabase_url() -> None:
-    with pytest.raises(ValidationError):
-        Settings(
-            APP_ENV="production",
-            SUPABASE_URL="http://localhost:54321",
             SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
         )
 
@@ -174,9 +169,8 @@ def test_supabase_url_rejects_non_origin_values(supabase_url: str) -> None:
         )
 
 
-def test_production_allows_https_supabase_origin() -> None:
+def test_https_supabase_origin_is_allowed() -> None:
     settings = Settings(
-        APP_ENV="production",
         SUPABASE_URL="https://api.example.com:8443",
         SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
         SUPABASE_SECRET_KEY="sb_secret_test",
@@ -213,23 +207,24 @@ def test_publishable_key_cannot_be_used_as_server_secret() -> None:
         )
 
 
-def test_production_requires_server_only_administrator_credentials() -> None:
-    with pytest.raises(ValidationError):
-        Settings(
-            APP_ENV="production",
-            SUPABASE_URL="https://test.supabase.co",
-            SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
-        )
+def test_administrator_credentials_are_optional_at_settings_time() -> None:
+    settings = Settings(
+        SUPABASE_URL="https://test.supabase.co",
+        SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
+    )
+
+    assert settings.SUPABASE_SECRET_KEY is None
+    assert settings.IPO_STOCK_API_KEY is None
 
 
 def test_settings_cache_can_be_cleared(monkeypatch: pytest.MonkeyPatch) -> None:
     clear_settings_cache()
     monkeypatch.setenv("SUPABASE_URL", "https://test.supabase.co")
     monkeypatch.setenv("SUPABASE_PUBLISHABLE_KEY", "sb_publishable_test")
-    monkeypatch.setenv("LOG_LEVEL", "WARNING")
+    monkeypatch.setenv("SUPABASE_TIMEOUT_SECONDS", "5")
     first = get_settings()
-    monkeypatch.setenv("LOG_LEVEL", "DEBUG")
+    monkeypatch.setenv("SUPABASE_TIMEOUT_SECONDS", "9")
     assert get_settings() is first
 
     clear_settings_cache()
-    assert get_settings().LOG_LEVEL == "DEBUG"
+    assert get_settings().SUPABASE_TIMEOUT_SECONDS == 9.0

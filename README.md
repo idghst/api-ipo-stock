@@ -21,7 +21,7 @@ uv run uvicorn app.main:app --reload
 ```
 
 - API: <http://127.0.0.1:8000>
-- Docs (development/명시 허용 시): <http://127.0.0.1:8000/docs>
+- Docs (localhost / Host에 `dev` 또는 `test`): <http://127.0.0.1:8000/docs>
 - Liveness: <http://127.0.0.1:8000/health/live>
 - Readiness: <http://127.0.0.1:8000/health/ready>
 
@@ -136,11 +136,13 @@ Fluid Compute와 `maxDuration: 30`을 설정합니다. `.vercelignore`는 root a
 Vercel Dashboard에서 **같은 `fastapi-ipo-stock` 프로젝트의** Preview와 Production
 환경을 분리해 아래 변수를 모두 설정합니다.
 
+환경은 요청 Host/URL hostname으로만 가릅니다. `test`면 test, `dev` 또는
+localhost/127.0.0.1이면 development, 그 외는 production입니다. production host에서는
+`/docs` `/redoc` `/openapi.json`을 비공개하고, secret/admin 키와 HTTPS
+`SUPABASE_URL`이 필요합니다. 로그 레벨은 INFO로 고정입니다.
+
 | Variable | Preview | Production | Notes |
 | --- | --- | --- | --- |
-| `APP_ENV` | `production` | `production` | 배포 런타임은 docs 기본 비활성 |
-| `LOG_LEVEL` | `INFO` | `INFO` 또는 `WARNING` | JSON 구조화 로그 |
-| `ENABLE_DOCS` | `false` | `false` | 운영 API 스키마 비공개 |
 | `CORS_ORIGINS` | Preview UI origin만 | Production UI origin만 | JSON 배열, wildcard 금지 |
 | `SUPABASE_URL` | Preview Supabase URL | Production Supabase URL | 서비스별 별도 프로젝트 |
 | `SUPABASE_PUBLISHABLE_KEY` | Preview publishable key | Production publishable key | 요청 JWT 검증·RLS 호출 |

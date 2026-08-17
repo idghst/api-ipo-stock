@@ -39,8 +39,11 @@ the non-obvious cloud notes below.
   process **will not start** unless `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` are set.
   Provide them through a gitignored `.env.local` (loaded automatically). A minimal boot
   needs only those two; `SUPABASE_SECRET_KEY` + `IPO_STOCK_API_KEY` are additionally
-  required for IPO list/detail GET (in development, missing admin creds only make the
-  `/api/v1/ipo-stocks` routes return `503`; production refuses to start).
+  required for IPO list/detail GET (localhost/`dev`/`test` hosts 503 those routes when
+  keys are missing; other hosts also 503 unless `/health/live`). Env is not `APP_ENV`:
+  Host/URL hostname containing `test` → test, `dev` or localhost/127.0.0.1 →
+  development, else production. Log level is always INFO. Docs are only on
+  development/test hosts.
 - IPO list/detail GET requires the `X-Admin-Key: <IPO_STOCK_API_KEY>` header.
   Request/response bodies are camelCase JSON.
 - `/health/live` needs nothing; `/health/ready` and the GET/auth routes make live calls

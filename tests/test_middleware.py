@@ -34,7 +34,7 @@ def test_middleware_returns_request_id_header() -> None:
 
 
 def test_configure_logging_emits_json_with_request_fields() -> None:
-    configure_logging("INFO")
+    configure_logging()
     handler = logging.getLogger().handlers[0]
     record = logging.LogRecord(
         "test.logger",

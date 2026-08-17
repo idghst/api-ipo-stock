@@ -25,10 +25,10 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False)
 
 
-def configure_logging(level: str) -> None:
-    """Configure the root logger with one UTC JSON stream handler."""
+def configure_logging() -> None:
+    """Configure the root logger with one UTC JSON stream handler at INFO."""
 
     handler = logging.StreamHandler()
     handler.setFormatter(JsonFormatter())
-    logging.basicConfig(level=level.upper(), handlers=[handler], force=True)
+    logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
     logging.getLogger("httpx").setLevel(logging.WARNING)

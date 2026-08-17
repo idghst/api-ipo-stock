@@ -118,17 +118,16 @@ def test_factory_injects_supplied_settings_and_root_message(
     assert response.json() == {"message": "IPO Stock API"}
 
 
-def test_production_disables_docs_and_openapi() -> None:
+def test_production_host_disables_docs_and_openapi() -> None:
     app = create_app(
         Settings(
-            APP_ENV="production",
-            SUPABASE_URL="https://test.supabase.co",
+            SUPABASE_URL="https://example.supabase.co",
             SUPABASE_PUBLISHABLE_KEY=SecretStr("sb_publishable_test"),
             SUPABASE_SECRET_KEY=SecretStr("sb_secret_test"),
             IPO_STOCK_API_KEY=SecretStr("administrator-secret"),
         )
     )
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://api.example.com")
 
     for path in ("/docs", "/redoc", "/openapi.json"):
         response = client.get(path, headers={"X-Request-ID": "req-docs"})
@@ -139,6 +138,48 @@ def test_production_disables_docs_and_openapi() -> None:
             "message": "HTTP error",
             "request_id": "req-docs",
         }
+
+
+def test_localhost_and_test_hosts_expose_docs(settings: Settings) -> None:
+    app = create_app(settings)
+    for base_url in ("http://localhost:8000", "http://testserver"):
+        client = TestClient(app, base_url=base_url)
+        assert client.get("/openapi.json").status_code == 200
+        assert client.get("/docs").status_code == 200
+
+
+def test_production_host_without_admin_credentials_returns_503() -> None:
+    app = create_app(
+        Settings(
+            SUPABASE_URL="https://example.supabase.co",
+            SUPABASE_PUBLISHABLE_KEY=SecretStr("sb_publishable_test"),
+        )
+    )
+    client = TestClient(app, base_url="http://api.example.com")
+
+    live = client.get("/health/live")
+    root = client.get("/")
+
+    assert live.status_code == 200
+    assert root.status_code == 503
+    assert root.json()["code"] == "administrator_authentication_unavailable"
+
+
+def test_production_host_rejects_http_supabase_url() -> None:
+    app = create_app(
+        Settings(
+            SUPABASE_URL="http://localhost:54321",
+            SUPABASE_PUBLISHABLE_KEY=SecretStr("sb_publishable_test"),
+            SUPABASE_SECRET_KEY=SecretStr("sb_secret_test"),
+            IPO_STOCK_API_KEY=SecretStr("administrator-secret"),
+        )
+    )
+    client = TestClient(app, base_url="http://api.example.com")
+
+    response = client.get("/")
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "dependency_unavailable"
 
 
 def test_cors_allows_only_configured_origin(settings: Settings) -> None:
