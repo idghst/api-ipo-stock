@@ -135,3 +135,28 @@ async def test_output_maps_offering_view_row() -> None:
     assert item.offer_price == 15000
     assert item.status == "listed"
     assert item.memo == "실데이터"
+
+
+@pytest.mark.asyncio
+async def test_output_maps_offering_status_and_price_fallbacks() -> None:
+    client = FakeSupabase(
+        FakeResponse(
+            [
+                {
+                    "id": 7,
+                    "name": "기본값",
+                    "final_price_krw": True,
+                    "status": "알수없음",
+                }
+            ]
+        )
+    )
+
+    item = await ipo_stocks.get_ipo_stock(client, "7")
+
+    assert item.offer_price is None
+    assert item.status == "scheduled"
+    assert ipo_stocks._int_or_none(12.5) is None
+    assert ipo_stocks._int_or_none(9) == 9
+    assert ipo_stocks._status("cancelled") == "cancelled"
+    assert ipo_stocks._status("공모철회") == "cancelled"

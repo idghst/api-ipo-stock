@@ -249,6 +249,7 @@ def test_create_ipo_stock_accepts_only_camel_case_payload(
 
     assert response.status_code == 201
     assert response.json() == IPO_STOCK_JSON
+    assert fake.queries[0].table == "ipo_stocks"
     assert fake.queries[0].payload == {
         "company_name": "테스트 기업",
         "ticker": "TEST",
