@@ -105,6 +105,24 @@ X-Admin-Key: <IPO_STOCK_API_KEY>
 | `GET` | `/api/v1/ipo-stocks/{id}` | IPO 1건 |
 | `PATCH` | `/api/v1/ipo-stocks/{id}` | 수정된 IPO |
 | `DELETE` | `/api/v1/ipo-stocks/{id}` | `204` |
+| `GET` | `/api/v1/tables` | `ipo_stock` 테이블·컬럼 목록 |
+| `GET` | `/api/v1/tables/{table}` | 테이블 1개 |
+| `POST` | `/api/v1/tables/{table}/columns` | 컬럼 추가, `201` |
+| `DELETE` | `/api/v1/tables/{table}/columns/{column}` | 컬럼 삭제 |
+| `GET` | `/api/v1/tables/{table}/rows?limit=100&offset=0` | `{ "items": [...], "count": 42 }` |
+| `POST` | `/api/v1/tables/{table}/rows` | 생성된 row, `201` |
+| `GET` | `/api/v1/tables/{table}/rows/{id}` | row 1건 |
+| `PATCH` | `/api/v1/tables/{table}/rows/{id}` | 수정된 row |
+| `DELETE` | `/api/v1/tables/{table}/rows/{id}` | `204` |
+
+`/tables`는 `ipo_stock` 스키마의 모든 테이블에 대해 동작합니다. 컬럼 추가 타입은
+`text`, `integer`, `bigint`, `boolean`, `date`, `timestamptz`, `numeric`, `uuid`,
+`jsonb`만 허용합니다. PK 컬럼은 삭제할 수 없습니다. 컬럼 추가/삭제 후 PostgREST
+스키마 캐시를 갱신합니다. 이 RPC는 migration 적용이 필요합니다.
+
+```bash
+npx --yes supabase@latest db push
+```
 
 목록의 `limit`은 `1`~`200`이며 기본값은 `100`, `offset`은 `0` 이상입니다. request와
 response는 모두 camelCase JSON만 사용합니다. `companyName`은 필수이고 나머지 필드는

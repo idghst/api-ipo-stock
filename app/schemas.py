@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import (
@@ -112,7 +112,7 @@ class IpoStockUpdate(_IpoStockInput):
 
 
 class IpoStockOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     id: UUID
     company_name: str = Field(serialization_alias="companyName")
@@ -128,4 +128,56 @@ class IpoStockOut(BaseModel):
 
 class IpoStockListOut(BaseModel):
     items: list[IpoStockOut]
+    count: int = Field(ge=0)
+
+
+ColumnType = Literal[
+    "text",
+    "integer",
+    "bigint",
+    "boolean",
+    "date",
+    "timestamptz",
+    "numeric",
+    "uuid",
+    "jsonb",
+]
+IDENT_PATTERN = r"^[a-z][a-z0-9_]{0,62}$"
+ColumnName = Annotated[str, StringConstraints(pattern=IDENT_PATTERN)]
+
+
+class ColumnOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    type: str
+    nullable: bool
+    primary_key: bool = Field(serialization_alias="primaryKey")
+
+
+class TableOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    columns: list[ColumnOut]
+
+
+class TableListOut(BaseModel):
+    items: list[TableOut]
+
+
+class ColumnCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: ColumnName
+    type: ColumnType
+    nullable: bool = True
+
+
+class ColumnNameOut(BaseModel):
+    name: str
+
+
+class RowListOut(BaseModel):
+    items: list[dict[str, Any]]
     count: int = Field(ge=0)

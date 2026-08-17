@@ -4,9 +4,8 @@ from uuid import UUID
 from postgrest.types import CountMethod
 from pydantic import ValidationError
 
-from app.core.errors import ApiError
 from app.schemas import IpoStockCreate, IpoStockListOut, IpoStockOut, IpoStockUpdate
-from app.services.postgrest import ensure_row, execute_query
+from app.services.postgrest import ensure_row, execute_query, invalid_response
 from supabase import AsyncClient
 
 TABLE_NAME = "ipo_stocks"
@@ -29,11 +28,7 @@ def _output(row: dict[str, Any]) -> IpoStockOut:
     try:
         return IpoStockOut.model_validate(row)
     except ValidationError as error:
-        raise ApiError(
-            502,
-            "database_response_invalid",
-            "Database returned an invalid response",
-        ) from error
+        raise invalid_response() from error
 
 
 async def list_ipo_stocks(
@@ -50,11 +45,7 @@ async def list_ipo_stocks(
         .range(offset, offset + limit - 1)
     )
     if count is None:
-        raise ApiError(
-            502,
-            "database_response_invalid",
-            "Database returned an invalid response",
-        )
+        raise invalid_response()
     return IpoStockListOut(items=[_output(row) for row in rows], count=count)
 
 

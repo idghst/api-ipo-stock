@@ -104,15 +104,41 @@ class FakeQuery:
         return response
 
 
+class FakeRpc:
+    def __init__(
+        self, fn: str, params: object, responses: list[FakeResponse | Exception]
+    ) -> None:
+        self.fn = fn
+        self.params = params
+        self.responses = responses
+
+    async def execute(self) -> FakeResponse:
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
 class FakeSupabase:
-    def __init__(self, *responses: FakeResponse | Exception) -> None:
+    def __init__(
+        self,
+        *responses: FakeResponse | Exception,
+        rpc_responses: list[FakeResponse | Exception] | None = None,
+    ) -> None:
         self.responses = list(responses)
+        self.rpc_responses = list(rpc_responses or [])
         self.queries: list[FakeQuery] = []
+        self.rpc_calls: list[FakeRpc] = []
 
     def table(self, name: str) -> FakeQuery:
         query = FakeQuery(name, self.responses)
         self.queries.append(query)
         return query
+
+    def rpc(self, fn: str, params: object = None) -> FakeRpc:
+        call = FakeRpc(fn, params, self.rpc_responses)
+        self.rpc_calls.append(call)
+        return call
 
 
 class FakeHttpClient:
@@ -262,6 +288,32 @@ def test_create_ipo_stock_rejects_invalid_subscription_range() -> None:
     assert response.json()["code"] == "validation_error"
 
 
+def test_create_ipo_stock_maps_check_constraint_to_stable_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeSupabase(
+        APIError(
+            {
+                "code": "23514",
+                "message": "private check detail",
+                "details": None,
+                "hint": None,
+            }
+        )
+    )
+    client, _, _ = _client_with_fake_admin(monkeypatch, fake)
+
+    response = client.post(
+        "/api/v1/ipo-stocks",
+        headers={"X-Admin-Key": "administrator-secret"},
+        json={"companyName": "테스트 기업"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "invalid_ipo_stock"
+    assert "private check detail" not in response.text
+
+
 def test_create_ipo_stock_maps_unique_ticker_to_stable_conflict(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -285,6 +337,21 @@ def test_create_ipo_stock_maps_unique_ticker_to_stable_conflict(
     assert response.status_code == 409
     assert response.json()["code"] == "ticker_already_exists"
     assert "private duplicate detail" not in response.text
+
+
+def test_get_ipo_stock_ignores_unknown_database_columns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeSupabase(FakeResponse([{**IPO_STOCK, "sector": "tech"}]))
+    client, _, _ = _client_with_fake_admin(monkeypatch, fake)
+
+    response = client.get(
+        f"/api/v1/ipo-stocks/{IPO_STOCK['id']}",
+        headers={"X-Admin-Key": "administrator-secret"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == IPO_STOCK_JSON
 
 
 def test_get_ipo_stock_returns_camel_case_or_not_found(
@@ -382,6 +449,61 @@ def test_delete_ipo_stock_returns_no_content_or_not_found(
     assert deleted.status_code == 204
     assert missing.status_code == 404
     assert missing.json()["code"] == "ipo_stock_not_found"
+
+
+def test_list_ipo_stocks_rejects_missing_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeSupabase(FakeResponse([IPO_STOCK], count=None))
+    client, _, _ = _client_with_fake_admin(monkeypatch, fake)
+
+    response = client.get(
+        "/api/v1/ipo-stocks",
+        headers={"X-Admin-Key": "administrator-secret"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["code"] == "database_response_invalid"
+
+
+def test_get_ipo_stock_rejects_invalid_row_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeSupabase(FakeResponse([{"id": IPO_STOCK["id"]}]))
+    client, _, _ = _client_with_fake_admin(monkeypatch, fake)
+
+    response = client.get(
+        f"/api/v1/ipo-stocks/{IPO_STOCK['id']}",
+        headers={"X-Admin-Key": "administrator-secret"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["code"] == "database_response_invalid"
+
+
+def test_ipo_stock_maps_access_denied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeSupabase(
+        APIError(
+            {
+                "code": "42501",
+                "message": "private privilege detail",
+                "details": None,
+                "hint": None,
+            }
+        )
+    )
+    client, _, _ = _client_with_fake_admin(monkeypatch, fake)
+
+    response = client.get(
+        "/api/v1/ipo-stocks",
+        headers={"X-Admin-Key": "administrator-secret"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "database_access_denied"
+    assert "private privilege detail" not in response.text
 
 
 def test_ipo_stocks_migration_keeps_data_api_roles_unprivileged() -> None:
