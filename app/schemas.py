@@ -12,6 +12,12 @@ from pydantic import (
     model_validator,
 )
 
+
+class AuthMeOut(BaseModel):
+    id: str
+    email: str | None
+
+
 IpoStockStatus = Literal[
     "scheduled",
     "subscription_open",
