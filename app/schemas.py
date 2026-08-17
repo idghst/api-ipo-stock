@@ -1,6 +1,5 @@
 from datetime import date
 from typing import Annotated, Any, Literal
-from uuid import UUID
 
 from pydantic import (
     BaseModel,
@@ -114,7 +113,7 @@ class IpoStockUpdate(_IpoStockInput):
 class IpoStockOut(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    id: UUID
+    id: str
     company_name: str = Field(serialization_alias="companyName")
     ticker: str | None = None
     market: str | None = None

@@ -222,3 +222,4 @@ grant execute on function "ipo-stock".schema_list_tables() to service_role;
 grant execute on function "ipo-stock".schema_add_column(text, text, text, boolean) to service_role;
 grant execute on function "ipo-stock".schema_drop_column(text, text) to service_role;
 grant execute on function "ipo-stock".schema_list_routines() to service_role;
+notify pgrst, 'reload schema';

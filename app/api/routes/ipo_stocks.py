@@ -1,5 +1,4 @@
 from typing import Annotated
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
 
@@ -39,7 +38,7 @@ async def create_ipo_stock(
     response_model=IpoStockOut,
     response_model_by_alias=True,
 )
-async def get_ipo_stock(ipo_stock_id: UUID, client: AdminClient) -> IpoStockOut:
+async def get_ipo_stock(ipo_stock_id: str, client: AdminClient) -> IpoStockOut:
     return await ipo_stocks.get_ipo_stock(client, ipo_stock_id)
 
 
@@ -49,7 +48,7 @@ async def get_ipo_stock(ipo_stock_id: UUID, client: AdminClient) -> IpoStockOut:
     response_model_by_alias=True,
 )
 async def update_ipo_stock(
-    ipo_stock_id: UUID,
+    ipo_stock_id: str,
     payload: IpoStockUpdate,
     client: AdminClient,
 ) -> IpoStockOut:
@@ -57,5 +56,5 @@ async def update_ipo_stock(
 
 
 @router.delete("/{ipo_stock_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_ipo_stock(ipo_stock_id: UUID, client: AdminClient) -> None:
+async def delete_ipo_stock(ipo_stock_id: str, client: AdminClient) -> None:
     await ipo_stocks.delete_ipo_stock(client, ipo_stock_id)

@@ -128,15 +128,23 @@ def _apply_filters(query: Any, filters: list[tuple[str, str]]) -> Any:
 
 
 def _row_in(payload: dict[str, Any], columns: set[str]) -> dict[str, Any]:
-    if any("_" in key for key in payload):
+    converted = _json_in(payload)
+    if not isinstance(converted, dict):
         raise ApiError(422, "validation_error", "Request validation failed")
-    converted: dict[str, Any] = {}
-    for key, value in payload.items():
-        column = _camel_to_snake(key)
-        if column not in columns:
-            raise ApiError(422, "unknown_column", "Unknown column")
-        converted[column] = value
+    unknown = set(converted) - columns
+    if unknown:
+        raise ApiError(422, "unknown_column", "Unknown column")
     return converted
+
+
+def _json_in(value: object) -> object:
+    if isinstance(value, list):
+        return [_json_in(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    if any("_" in key for key in value):
+        raise ApiError(422, "validation_error", "Request validation failed")
+    return {_camel_to_snake(key): _json_in(item) for key, item in value.items()}
 
 
 async def list_tables(client: AsyncClient) -> TableListOut:
@@ -207,7 +215,7 @@ async def list_rows(
 
 async def get_row(client: AsyncClient, table_name: str, row_id: str) -> dict[str, Any]:
     table = await get_table(client, table_name)
-    filters = _row_key_filters(table, row_id)
+    filters = _row_key_filters(table, row_id, for_write=False)
     rows, _ = await execute_query(
         _apply_filters(client.table(table.name).select("*"), filters).limit(1)
     )
@@ -235,7 +243,7 @@ async def update_row(
     updates = _row_in(payload, {column.name for column in table.columns})
     if not updates:
         raise ApiError(422, "validation_error", "Request validation failed")
-    filters = _row_key_filters(table, row_id)
+    filters = _row_key_filters(table, row_id, for_write=True)
     rows, _ = await execute_query(
         _apply_filters(client.table(table.name).update(updates), filters)
     )
@@ -245,7 +253,7 @@ async def update_row(
 async def delete_row(client: AsyncClient, table_name: str, row_id: str) -> None:
     table = await get_table(client, table_name)
     _require_table(table)
-    filters = _row_key_filters(table, row_id)
+    filters = _row_key_filters(table, row_id, for_write=True)
     rows, _ = await execute_query(
         _apply_filters(client.table(table.name).delete(), filters)
     )
@@ -282,7 +290,7 @@ async def call_routine(
     names = {routine.name for routine in (await list_routines(client)).items}
     if routine_name not in names:
         raise ApiError(404, "routine_not_found", "Routine not found")
-    if any("_" in key for key in payload):
+    params = _json_in(payload)
+    if not isinstance(params, dict):
         raise ApiError(422, "validation_error", "Request validation failed")
-    params = {_camel_to_snake(key): value for key, value in payload.items()}
     return _value_out(await execute_rpc(client.rpc(routine_name, params)))

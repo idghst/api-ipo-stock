@@ -221,7 +221,7 @@ def test_list_ipo_stocks_uses_secret_client_and_returns_camel_case(
     assert response.json() == {"items": [IPO_STOCK_JSON], "count": 1}
     assert received_keys == ["sb_secret_test"]
     assert http_client.closed is True
-    assert fake.queries[0].table == "ipo_stocks"
+    assert fake.queries[0].table == "v_offerings"
     assert fake.queries[0].count == CountMethod.exact
     assert fake.queries[0].range_values == (5, 29)
 

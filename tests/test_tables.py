@@ -465,6 +465,27 @@ def test_list_rows_uses_id_when_primary_key_is_missing(
     assert fake.queries[0].ordering == [("id", False, None)]
 
 
+def test_get_view_row_uses_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    table = {
+        "name": "v_offerings",
+        "kind": "view",
+        "columns": [
+            {"name": "id", "type": "bigint", "nullable": True, "primary_key": False}
+        ],
+    }
+    client, fake = _rpc_client(
+        monkeypatch,
+        FakeResponse([{"id": 1}]),
+        rpc_responses=[FakeResponse([table])],
+    )
+
+    response = client.get("/api/v1/tables/v_offerings/rows/1", headers=ADMIN)
+
+    assert response.status_code == 200
+    assert response.json() == {"id": 1}
+    assert fake.queries[0].filters == [("id", "1")]
+
+
 def test_view_writes_are_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     table = {
         "name": "v_offerings",
@@ -638,7 +659,7 @@ def test_routines_list_and_call(monkeypatch: pytest.MonkeyPatch) -> None:
     assert called.status_code == 200
     assert called.json() == [{"nOff": 2, "nOu": 1}]
     assert fake.rpc_calls[2].fn == "backfill_batch"
-    assert fake.rpc_calls[2].params == {"payload": [{"sourceNo": "1"}]}
+    assert fake.rpc_calls[2].params == {"payload": [{"source_no": "1"}]}
     assert missing.status_code == 404
     assert missing.json()["code"] == "routine_not_found"
 
@@ -710,6 +731,15 @@ def test_schema_admin_migration_keeps_functions_service_role_only() -> None:
     assert (
         'revoke all on function "ipo-stock".schema_list_routines() from public, anon, authenticated;'
         in hyphen
+    )
+    revoke = next(
+        (Path(__file__).parents[1] / "supabase" / "migrations").glob(
+            "*_revoke_ipo_stock_backfill_from_data_api.sql"
+        )
+    ).read_text()
+    assert (
+        'revoke all on function "ipo-stock".backfill_batch(json) from public, anon, authenticated;'
+        in revoke
     )
 
 
