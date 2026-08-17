@@ -1,9 +1,10 @@
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
 from app.integrations.supabase import get_admin_api_client
-from app.schemas import IpoStockListOut, IpoStockOut
+from app.schemas import IpoStockListOut, IpoStockOut, IpoStockStatus
 from app.services import ipo_stocks
 from supabase import AsyncClient
 
@@ -16,8 +17,22 @@ async def list_ipo_stocks(
     client: AdminClient,
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
     offset: Annotated[int, Query(ge=0)] = 0,
+    q: Annotated[str | None, Query(max_length=80)] = None,
+    status: Annotated[IpoStockStatus | None, Query()] = None,
+    date_from: Annotated[date | None, Query(alias="dateFrom")] = None,
+    date_to: Annotated[date | None, Query(alias="dateTo")] = None,
+    pipeline: Annotated[bool, Query()] = False,
 ) -> IpoStockListOut:
-    return await ipo_stocks.list_ipo_stocks(client, limit=limit, offset=offset)
+    return await ipo_stocks.list_ipo_stocks(
+        client,
+        limit=limit,
+        offset=offset,
+        q=q,
+        status=status,
+        date_from=date_from,
+        date_to=date_to,
+        pipeline=pipeline,
+    )
 
 
 @router.get(

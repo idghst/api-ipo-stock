@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, get_args
 from zoneinfo import ZoneInfo
@@ -6,18 +6,25 @@ from zoneinfo import ZoneInfo
 from postgrest.types import CountMethod
 from pydantic import ValidationError
 
-from app.schemas import IpoStockListOut, IpoStockOut, IpoStockStatus
+from app.schemas import (
+    IpoStockListOut,
+    IpoStockOut,
+    IpoStockStatus,
+    IpoStockSummaryOut,
+)
 from app.services.postgrest import ensure_row, execute_query, invalid_response
 from supabase import AsyncClient
 
 READ_TABLE = "v_offerings"
 _NOT_FOUND = ("ipo_stock_not_found", "IPO stock not found")
-_STATUS_BY_LABEL = {
-    "신규상장": "listed",
-    "공모주": "scheduled",
-    "공모철회": "cancelled",
-    "공모철회 (공모철회)": "cancelled",
-}
+_SEOUL = ZoneInfo("Asia/Seoul")
+_UPCOMING_DAYS = 14
+_FETCH_PAGE = 1000
+_LIST_COLUMNS = (
+    "id,name,stock_code,market,status,final_price_krw,subscribe_start,"
+    "subscribe_end,listing_date,retail_comp_rate,inst_comp_rate,"
+    "underwriters,hope_price,note,source_no"
+)
 
 
 async def _execute(query: Any) -> tuple[list[dict[str, Any]], int | None]:
@@ -26,6 +33,10 @@ async def _execute(query: Any) -> tuple[list[dict[str, Any]], int | None]:
 
 def _ensure_row(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return ensure_row(rows, code=_NOT_FOUND[0], message=_NOT_FOUND[1])
+
+
+def _today() -> date:
+    return datetime.now(tz=_SEOUL).date()
 
 
 def _number(value: object) -> int | float | None:
@@ -67,7 +78,7 @@ def _as_date(value: object) -> date | None:
 
 
 def _gongmo_status(row: dict[str, Any]) -> IpoStockStatus:
-    today = datetime.now(tz=ZoneInfo("Asia/Seoul")).date()
+    today = _today()
     listing = _as_date(row.get("listing_date"))
     start = _as_date(row.get("subscribe_start"))
     end = _as_date(row.get("subscribe_end"))
@@ -85,11 +96,9 @@ def _status(value: object, row: dict[str, Any] | None = None) -> IpoStockStatus:
         return value  # type: ignore[return-value]
     if isinstance(value, str) and value.startswith("공모철회"):
         return "cancelled"
-    if value == "공모주":
-        return _gongmo_status(row or {})
-    if isinstance(value, str) and value in _STATUS_BY_LABEL:
-        return _STATUS_BY_LABEL[value]  # type: ignore[return-value]
-    return "scheduled"
+    if value == "신규상장":
+        return "listed"
+    return _gongmo_status(row or {})
 
 
 def _status_raw(value: object) -> str | None:
@@ -155,22 +164,152 @@ def _output(row: dict[str, Any]) -> IpoStockOut:
         raise invalid_response() from error
 
 
+def _horizon(today: date) -> date:
+    return today + timedelta(days=_UPCOMING_DAYS)
+
+
+def _upcoming_dates(item: IpoStockOut, today: date) -> list[date]:
+    horizon = _horizon(today)
+    dates: list[date] = []
+    if item.subscription_start and today <= item.subscription_start <= horizon:
+        dates.append(item.subscription_start)
+    if item.listing_date and today <= item.listing_date <= horizon:
+        dates.append(item.listing_date)
+    return dates
+
+
+def _summary(items: list[IpoStockOut], today: date) -> IpoStockSummaryOut:
+    counts = dict.fromkeys(get_args(IpoStockStatus), 0)
+    upcoming_subscription = 0
+    upcoming_listing = 0
+    horizon = _horizon(today)
+    for item in items:
+        counts[item.status] += 1
+        if item.subscription_start and today <= item.subscription_start <= horizon:
+            upcoming_subscription += 1
+        if item.listing_date and today <= item.listing_date <= horizon:
+            upcoming_listing += 1
+    return IpoStockSummaryOut(
+        total=len(items),
+        scheduled=counts["scheduled"],
+        subscription_open=counts["subscription_open"],
+        subscription_closed=counts["subscription_closed"],
+        listed=counts["listed"],
+        cancelled=counts["cancelled"],
+        upcoming_subscription=upcoming_subscription,
+        upcoming_listing=upcoming_listing,
+    )
+
+
+def _sort_key(item: IpoStockOut) -> tuple[int, int]:
+    start = item.subscription_start
+    if start is None:
+        return (1, 0)
+    return (0, -start.toordinal())
+
+
+def _in_pipeline(item: IpoStockOut, today: date) -> bool:
+    if item.status in {"scheduled", "subscription_open"}:
+        return True
+    return bool(
+        item.status == "subscription_closed"
+        and item.listing_date is not None
+        and item.listing_date >= today
+    )
+
+
+def _matches(
+    item: IpoStockOut,
+    *,
+    q: str | None,
+    status: IpoStockStatus | None,
+    date_from: date | None,
+    date_to: date | None,
+    pipeline: bool,
+    today: date,
+) -> bool:
+    if status is not None and item.status != status:
+        return False
+    if pipeline and status is None and not _in_pipeline(item, today):
+        return False
+    if q:
+        needle = q.casefold()
+        haystacks = (item.company_name, item.ticker or "")
+        if not any(needle in value.casefold() for value in haystacks):
+            return False
+    if date_from is None and date_to is None:
+        return True
+    dates = [
+        value
+        for value in (
+            item.subscription_start,
+            item.subscription_end,
+            item.listing_date,
+        )
+        if value is not None
+    ]
+    if not dates:
+        return False
+    if date_from is not None and all(value < date_from for value in dates):
+        return False
+    return not (date_to is not None and all(value > date_to for value in dates))
+
+
+async def _fetch_rows(client: AsyncClient, columns: str) -> list[dict[str, Any]]:
+    rows_all: list[dict[str, Any]] = []
+    offset = 0
+    while True:
+        rows, count = await _execute(
+            client.table(READ_TABLE)
+            .select(columns, count=CountMethod.exact)
+            .order("id")
+            .range(offset, offset + _FETCH_PAGE - 1)
+        )
+        if count is None:
+            raise invalid_response()
+        rows_all.extend(rows)
+        offset += _FETCH_PAGE
+        if offset >= count or not rows:
+            break
+    return rows_all
+
+
 async def list_ipo_stocks(
     client: AsyncClient,
     *,
     limit: int,
     offset: int,
+    q: str | None = None,
+    status: IpoStockStatus | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    pipeline: bool = False,
 ) -> IpoStockListOut:
-    rows, count = await _execute(
-        client.table(READ_TABLE)
-        .select("*", count=CountMethod.exact)
-        .order("subscribe_start", nullsfirst=False)
-        .order("name")
-        .range(offset, offset + limit - 1)
+    today = _today()
+    query = q.strip() if q else None
+    items = [_output(row) for row in await _fetch_rows(client, _LIST_COLUMNS)]
+    filtered = [
+        item
+        for item in items
+        if _matches(
+            item,
+            q=query,
+            status=status,
+            date_from=date_from,
+            date_to=date_to,
+            pipeline=pipeline,
+            today=today,
+        )
+    ]
+    filtered.sort(key=_sort_key)
+    upcoming = [item for item in items if _upcoming_dates(item, today)]
+    upcoming.sort(key=lambda item: min(_upcoming_dates(item, today)))
+    return IpoStockListOut(
+        items=filtered[offset : offset + limit],
+        count=len(filtered),
+        summary=_summary(items, today),
+        upcoming=upcoming,
     )
-    if count is None:
-        raise invalid_response()
-    return IpoStockListOut(items=[_output(row) for row in rows], count=count)
 
 
 async def get_ipo_stock(client: AsyncClient, ipo_stock_id: str) -> IpoStockOut:

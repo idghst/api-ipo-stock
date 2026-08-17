@@ -123,6 +123,19 @@ class IpoStockOut(BaseModel):
         }
 
 
+class IpoStockSummaryOut(BaseModel):
+    total: int = Field(ge=0)
+    scheduled: int = Field(ge=0)
+    subscription_open: int = Field(ge=0, serialization_alias="subscriptionOpen")
+    subscription_closed: int = Field(ge=0, serialization_alias="subscriptionClosed")
+    listed: int = Field(ge=0)
+    cancelled: int = Field(ge=0)
+    upcoming_subscription: int = Field(ge=0, serialization_alias="upcomingSubscription")
+    upcoming_listing: int = Field(ge=0, serialization_alias="upcomingListing")
+
+
 class IpoStockListOut(BaseModel):
     items: list[IpoStockOut]
     count: int = Field(ge=0)
+    summary: IpoStockSummaryOut
+    upcoming: list[IpoStockOut] = Field(default_factory=list)

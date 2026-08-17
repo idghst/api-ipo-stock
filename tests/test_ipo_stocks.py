@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -49,6 +49,67 @@ IPO_STOCK_JSON = {
     "status": "scheduled",
     "memo": "관리 대상",
 }
+
+
+def _today() -> date:
+    return datetime.now(tz=ZoneInfo("Asia/Seoul")).date()
+
+
+def _in_upcoming(value: str | None) -> bool:
+    if not value:
+        return False
+    parsed = date.fromisoformat(value)
+    today = _today()
+    return today <= parsed <= today + timedelta(days=14)
+
+
+def _list_payload(
+    items: list[dict[str, Any]], *, count: int | None = None
+) -> dict[str, Any]:
+    summary = {
+        "total": len(items),
+        "scheduled": 0,
+        "subscriptionOpen": 0,
+        "subscriptionClosed": 0,
+        "listed": 0,
+        "cancelled": 0,
+        "upcomingSubscription": 0,
+        "upcomingListing": 0,
+    }
+    aliases = {
+        "scheduled": "scheduled",
+        "subscription_open": "subscriptionOpen",
+        "subscription_closed": "subscriptionClosed",
+        "listed": "listed",
+        "cancelled": "cancelled",
+    }
+    upcoming: list[dict[str, Any]] = []
+    for item in items:
+        summary[aliases[item["status"]]] += 1
+        if _in_upcoming(item.get("subscriptionStart")):
+            summary["upcomingSubscription"] += 1
+        if _in_upcoming(item.get("listingDate")):
+            summary["upcomingListing"] += 1
+        if _in_upcoming(item.get("subscriptionStart")) or _in_upcoming(
+            item.get("listingDate")
+        ):
+            upcoming.append(item)
+    upcoming.sort(
+        key=lambda item: min(
+            date
+            for date in (
+                item.get("subscriptionStart"),
+                item.get("listingDate"),
+            )
+            if date and _in_upcoming(date)
+        )
+    )
+    return {
+        "items": items,
+        "count": len(items) if count is None else count,
+        "summary": summary,
+        "upcoming": upcoming,
+    }
 
 
 @dataclass
@@ -185,17 +246,17 @@ def test_list_ipo_stocks_uses_secret_client_and_returns_camel_case(
     client, received_keys, http_client = _client_with_fake_admin(monkeypatch, fake)
 
     response = client.get(
-        "/api/v1/ipo-stocks?limit=25&offset=5",
+        "/api/v1/ipo-stocks?limit=25&offset=0",
         headers={"X-Admin-Key": "administrator-secret"},
     )
 
     assert response.status_code == 200
-    assert response.json() == {"items": [IPO_STOCK_JSON], "count": 1}
+    assert response.json() == _list_payload([IPO_STOCK_JSON])
     assert received_keys == ["sb_secret_test"]
     assert http_client.closed is True
     assert fake.queries[0].table == "v_offerings"
     assert fake.queries[0].count == CountMethod.exact
-    assert fake.queries[0].range_values == (5, 29)
+    assert fake.queries[0].range_values == (0, 999)
 
 
 def test_ipo_stock_writes_are_not_routed() -> None:
@@ -459,3 +520,85 @@ def test_v_offerings_wrapper_migration_is_service_role_select_only() -> None:
     assert "grant update" not in migration.lower()
     assert "grant delete" not in migration.lower()
     assert "notify pgrst, 'reload schema'" in migration
+
+
+def test_v_offerings_status_norm_migration_is_select_only() -> None:
+    migration = next(
+        (Path(__file__).parents[1] / "supabase" / "migrations").glob(
+            "*_enrich_ipo_stock_v_offerings_status_norm.sql"
+        )
+    ).read_text()
+
+    assert "status_norm" in migration
+    assert "with (security_invoker = true)" in migration
+    assert 'from "ipo-stock".v_offerings as src' in migration
+    assert (
+        "revoke all on table ipo_stock.v_offerings from public, anon, authenticated"
+        in migration
+    )
+    assert "grant select on table ipo_stock.v_offerings to service_role" in migration
+    assert "grant insert" not in migration.lower()
+    assert "notify pgrst, 'reload schema'" in migration
+
+
+def test_list_ipo_stocks_filters_and_keeps_global_summary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    today = _today()
+    scheduled = {
+        **OFFERING_ROW,
+        "id": 34,
+        "name": "스카이랩스",
+        "stock_code": "SKY",
+        "status": "공모주",
+        "subscribe_start": (today + timedelta(days=8)).isoformat(),
+        "subscribe_end": (today + timedelta(days=9)).isoformat(),
+        "listing_date": None,
+        "note": None,
+    }
+    listed = {
+        **OFFERING_ROW,
+        "id": 41,
+        "name": "과거상장",
+        "stock_code": "OLD",
+        "status": "신규상장",
+        "subscribe_start": "2020-01-01",
+        "subscribe_end": "2020-01-02",
+        "listing_date": "2020-01-10",
+        "note": None,
+    }
+    fake = FakeSupabase(
+        FakeResponse([scheduled, listed], count=2),
+        FakeResponse([scheduled, listed], count=2),
+        FakeResponse([scheduled, listed], count=2),
+    )
+    client, _, _ = _client_with_fake_admin(monkeypatch, fake)
+
+    filtered = client.get(
+        "/api/v1/ipo-stocks?q=스카이&pipeline=true",
+        headers={"X-Admin-Key": "administrator-secret"},
+    )
+    listed_only = client.get(
+        "/api/v1/ipo-stocks?status=listed",
+        headers={"X-Admin-Key": "administrator-secret"},
+    )
+    dated = client.get(
+        f"/api/v1/ipo-stocks?dateFrom={today.isoformat()}&dateTo={(today + timedelta(days=14)).isoformat()}",
+        headers={"X-Admin-Key": "administrator-secret"},
+    )
+
+    body = filtered.json()
+    assert filtered.status_code == 200
+    assert body["count"] == 1
+    assert body["items"][0]["companyName"] == "스카이랩스"
+    assert body["items"][0]["status"] == "scheduled"
+    assert body["summary"]["total"] == 2
+    assert body["summary"]["scheduled"] == 1
+    assert body["summary"]["listed"] == 1
+    assert body["summary"]["upcomingSubscription"] == 1
+    assert listed_only.status_code == 200
+    assert listed_only.json()["count"] == 1
+    assert listed_only.json()["items"][0]["status"] == "listed"
+    assert dated.status_code == 200
+    assert dated.json()["count"] == 1
+    assert dated.json()["items"][0]["companyName"] == "스카이랩스"

@@ -185,6 +185,28 @@ async def test_output_maps_offering_status_and_price_fallbacks() -> None:
     assert ipo_stocks._status("cancelled") == "cancelled"
     assert ipo_stocks._status("공모철회") == "cancelled"
     assert ipo_stocks._status("공모철회 (공모철회)") == "cancelled"
+    assert (
+        ipo_stocks._status(
+            None,
+            {
+                "subscribe_start": "2004-12-01",
+                "subscribe_end": "2004-12-02",
+                "listing_date": None,
+            },
+        )
+        == "subscription_closed"
+    )
+    assert (
+        ipo_stocks._status(
+            None,
+            {
+                "subscribe_start": "2012-01-16",
+                "subscribe_end": "2012-01-17",
+                "listing_date": "2012-01-31",
+            },
+        )
+        == "listed"
+    )
 
 
 @pytest.mark.asyncio
@@ -229,3 +251,124 @@ async def test_output_maps_gongmo_status_from_dates() -> None:
     assert (await ipo_stocks.get_ipo_stock(client, "35")).status == "subscription_open"
     assert (await ipo_stocks.get_ipo_stock(client, "34")).status == "scheduled"
     assert (await ipo_stocks.get_ipo_stock(client, "33")).status == "listed"
+
+
+@pytest.mark.asyncio
+async def test_list_sorts_by_subscription_start_desc() -> None:
+    today = datetime.now(tz=ZoneInfo("Asia/Seoul")).date()
+    older = {
+        **OFFERING_ROW,
+        "id": 9,
+        "name": "과거상장",
+        "status": "신규상장",
+        "subscribe_start": "2020-01-01",
+        "subscribe_end": "2020-01-02",
+        "listing_date": "2020-01-10",
+        "note": None,
+    }
+    newer = {
+        **OFFERING_ROW,
+        "id": 2,
+        "name": "예정종목",
+        "status": "공모주",
+        "subscribe_start": (today + timedelta(days=5)).isoformat(),
+        "subscribe_end": (today + timedelta(days=6)).isoformat(),
+        "listing_date": None,
+        "note": None,
+    }
+    missing = {
+        **OFFERING_ROW,
+        "id": 3,
+        "name": "날짜없음",
+        "status": "공모주",
+        "subscribe_start": None,
+        "subscribe_end": None,
+        "listing_date": None,
+        "note": None,
+    }
+    client = FakeSupabase(FakeResponse([older, missing, newer], count=3))
+
+    page = await ipo_stocks.list_ipo_stocks(client, limit=10, offset=0)
+
+    assert [item.company_name for item in page.items] == [
+        "예정종목",
+        "과거상장",
+        "날짜없음",
+    ]
+    assert page.summary.total == 3
+    assert page.upcoming[0].company_name == "예정종목"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_keeps_only_calendar_closed_rows() -> None:
+    today = datetime.now(tz=ZoneInfo("Asia/Seoul")).date()
+    awaiting = {
+        **OFFERING_ROW,
+        "id": 36,
+        "name": "해치텍",
+        "status": "공모주",
+        "subscribe_start": (today - timedelta(days=6)).isoformat(),
+        "subscribe_end": (today - timedelta(days=5)).isoformat(),
+        "listing_date": (today + timedelta(days=7)).isoformat(),
+        "note": None,
+    }
+    historic = {
+        **OFFERING_ROW,
+        "id": 5,
+        "name": "모빌리언스",
+        "status": None,
+        "subscribe_start": "2004-12-01",
+        "subscribe_end": "2004-12-02",
+        "listing_date": None,
+        "note": None,
+    }
+    client = FakeSupabase(FakeResponse([awaiting, historic], count=2))
+
+    page = await ipo_stocks.list_ipo_stocks(client, limit=10, offset=0, pipeline=True)
+
+    assert page.summary.subscription_closed == 2
+    assert [item.company_name for item in page.items] == ["해치텍"]
+
+
+@pytest.mark.asyncio
+async def test_pipeline_sorts_by_subscription_start_desc() -> None:
+    today = datetime.now(tz=ZoneInfo("Asia/Seoul")).date()
+    opened = {
+        **OFFERING_ROW,
+        "id": 1,
+        "name": "청약중",
+        "status": "공모주",
+        "subscribe_start": today.isoformat(),
+        "subscribe_end": today.isoformat(),
+        "listing_date": (today + timedelta(days=10)).isoformat(),
+        "note": None,
+    }
+    later = {
+        **OFFERING_ROW,
+        "id": 2,
+        "name": "더늦은예정",
+        "status": "공모주",
+        "subscribe_start": (today + timedelta(days=20)).isoformat(),
+        "subscribe_end": (today + timedelta(days=21)).isoformat(),
+        "listing_date": None,
+        "note": None,
+    }
+    closed = {
+        **OFFERING_ROW,
+        "id": 3,
+        "name": "마감대기",
+        "status": "공모주",
+        "subscribe_start": (today - timedelta(days=6)).isoformat(),
+        "subscribe_end": (today - timedelta(days=5)).isoformat(),
+        "listing_date": (today + timedelta(days=7)).isoformat(),
+        "note": None,
+    }
+    client = FakeSupabase(FakeResponse([opened, closed, later], count=3))
+
+    page = await ipo_stocks.list_ipo_stocks(client, limit=10, offset=0, pipeline=True)
+
+    assert [item.company_name for item in page.items] == [
+        "더늦은예정",
+        "청약중",
+        "마감대기",
+    ]
