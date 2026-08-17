@@ -1,67 +1,28 @@
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
-import httpx
-from postgrest.exceptions import APIError as PostgrestAPIError
 from postgrest.types import CountMethod
 from pydantic import ValidationError
 
 from app.core.errors import ApiError
 from app.schemas import IpoStockCreate, IpoStockListOut, IpoStockOut, IpoStockUpdate
+from app.services.postgrest import ensure_row, execute_query
 from supabase import AsyncClient
 
 TABLE_NAME = "ipo_stocks"
+_NOT_FOUND = ("ipo_stock_not_found", "IPO stock not found")
+_CODE_ERRORS = {
+    "23505": (409, "ticker_already_exists", "Ticker already exists"),
+    "23514": (422, "invalid_ipo_stock", "IPO stock data is invalid"),
+}
 
 
 async def _execute(query: Any) -> tuple[list[dict[str, Any]], int | None]:
-    try:
-        response = await query.execute()
-    except PostgrestAPIError as error:
-        if error.code == "23505":
-            raise ApiError(
-                409, "ticker_already_exists", "Ticker already exists"
-            ) from error
-        if error.code == "23514":
-            raise ApiError(
-                422, "invalid_ipo_stock", "IPO stock data is invalid"
-            ) from error
-        if error.code == "42501":
-            raise ApiError(
-                403,
-                "database_access_denied",
-                "Database access was denied",
-            ) from error
-        raise ApiError(
-            502,
-            "database_request_failed",
-            "Database request failed",
-        ) from error
-    except httpx.HTTPError as error:
-        raise ApiError(
-            503, "database_unavailable", "Database is unavailable"
-        ) from error
-
-    data = response.data
-    if not isinstance(data, list) or not all(isinstance(row, dict) for row in data):
-        raise ApiError(
-            502,
-            "database_response_invalid",
-            "Database returned an invalid response",
-        )
-    count = response.count
-    if count is not None and (not isinstance(count, int) or isinstance(count, bool)):
-        raise ApiError(
-            502,
-            "database_response_invalid",
-            "Database returned an invalid response",
-        )
-    return cast(list[dict[str, Any]], data), count
+    return await execute_query(query, code_errors=_CODE_ERRORS)
 
 
 def _ensure_row(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    if not rows:
-        raise ApiError(404, "ipo_stock_not_found", "IPO stock not found")
-    return rows[0]
+    return ensure_row(rows, code=_NOT_FOUND[0], message=_NOT_FOUND[1])
 
 
 def _output(row: dict[str, Any]) -> IpoStockOut:
