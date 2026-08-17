@@ -89,48 +89,22 @@ curl -i \
 정상 요청에는 `id`, `email`만 반환합니다. 오류 응답도 `X-Request-ID`를 반환하므로
 장애 문의와 로그 검색에 그 값을 함께 사용하세요.
 
-## IPO stock admin API
+## IPO stock API
 
 모든 IPO 요청은 아래 헤더가 필요합니다. `IPO_STOCK_API_KEY`와
 `SUPABASE_SECRET_KEY` 중 하나라도 없으면 운영 환경은 시작하지 않으며, development에서는
-관리 요청만 `503`으로 거부됩니다. 키가 틀리거나 없으면 동일한 `401` 오류를 반환합니다.
+목록/상세 요청만 `503`으로 거부됩니다. 키가 틀리거나 없으면 동일한 `401` 오류를 반환합니다.
 
 ```http
 X-Admin-Key: <IPO_STOCK_API_KEY>
 ```
 
-도메인 경로 `GET /api/v1/ipo-stocks`, `GET /api/v1/ipo-stocks/{id}`는
-`"ipo-stock".v_offerings` SELECT만 사용합니다. `POST`/`PATCH`/`DELETE`는
-`422 unsupported_write_target`입니다.
+공개 경로는 GET만 있습니다. `"ipo-stock".v_offerings` SELECT만 사용합니다.
 
 | Method | Path | Response |
 | --- | --- | --- |
 | `GET` | `/api/v1/ipo-stocks?limit=100&offset=0` | `{ "items": [...], "count": 42 }` |
-| `POST` | `/api/v1/ipo-stocks` | `422 unsupported_write_target` |
 | `GET` | `/api/v1/ipo-stocks/{id}` | IPO 1건 |
-| `PATCH` | `/api/v1/ipo-stocks/{id}` | `422 unsupported_write_target` |
-| `DELETE` | `/api/v1/ipo-stocks/{id}` | `422 unsupported_write_target` |
-| `GET` | `/api/v1/tables` | `ipo-stock` 테이블·뷰·컬럼 목록 |
-| `GET` | `/api/v1/tables/{table}` | 테이블 1개 |
-| `POST` | `/api/v1/tables/{table}/columns` | 컬럼 추가, `201` |
-| `DELETE` | `/api/v1/tables/{table}/columns/{column}` | 컬럼 삭제 |
-| `GET` | `/api/v1/tables/{table}/rows?limit=100&offset=0` | `{ "items": [...], "count": 42 }` |
-| `POST` | `/api/v1/tables/{table}/rows` | 생성된 row, `201` |
-| `GET` | `/api/v1/tables/{table}/rows/{id}` | row 1건 |
-| `PATCH` | `/api/v1/tables/{table}/rows/{id}` | 수정된 row |
-| `DELETE` | `/api/v1/tables/{table}/rows/{id}` | `204` |
-| `GET` | `/api/v1/routines` | 스키마 함수 목록 |
-| `POST` | `/api/v1/routines/{name}` | 함수 호출 결과 |
-
-`/tables`는 `ipo-stock` 스키마의 테이블과 뷰에 대해 동작합니다. 뷰는 읽기만
-가능합니다. 복합 PK는 `row_id`를 `값1|값2|값3` 순서로 넘깁니다. 컬럼 추가 타입은
-`text`, `integer`, `bigint`, `boolean`, `date`, `timestamptz`, `numeric`, `uuid`,
-`jsonb`만 허용합니다. PK 컬럼은 삭제할 수 없습니다. 컬럼 추가/삭제 후 PostgREST
-스키마 캐시를 갱신합니다. 이 RPC는 migration 적용이 필요합니다.
-
-```bash
-npx --yes supabase@latest db push
-```
 
 목록의 `limit`은 `1`~`200`이며 기본값은 `100`, `offset`은 `0` 이상입니다. response는
 camelCase JSON입니다. 기존 필드(`companyName`, `ticker`, `market`, `offerPrice`,

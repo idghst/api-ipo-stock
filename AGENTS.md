@@ -38,15 +38,15 @@ the non-obvious cloud notes below.
 - Non-obvious gotcha: settings are validated at import time via `get_settings()`, so the
   process **will not start** unless `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` are set.
   Provide them through a gitignored `.env.local` (loaded automatically). A minimal boot
-  needs only those two; `SUPABASE_SECRET_KEY` + `ADMIN_API_KEY` are additionally required
-  for the IPO admin CRUD (in development, missing admin creds only make the
+  needs only those two; `SUPABASE_SECRET_KEY` + `IPO_STOCK_API_KEY` are additionally
+  required for IPO list/detail GET (in development, missing admin creds only make the
   `/api/v1/ipo-stocks` routes return `503`; production refuses to start).
-- IPO admin CRUD requires the `X-Admin-Key: <ADMIN_API_KEY>` header. Request/response
-  bodies are camelCase JSON.
-- `/health/live` needs nothing; `/health/ready` and the CRUD/auth routes make live calls
+- IPO list/detail GET requires the `X-Admin-Key: <IPO_STOCK_API_KEY>` header.
+  Request/response bodies are camelCase JSON.
+- `/health/live` needs nothing; `/health/ready` and the GET/auth routes make live calls
   to the configured Supabase, so they need a reachable Supabase (see below).
 
-### Optional: local Supabase for full end-to-end (health/ready + real CRUD)
+### Optional: local Supabase for full end-to-end (health/ready + real GET)
 
 Only needed when you want the Supabase-backed endpoints to actually work locally. This is
 a per-session step (heavy), intentionally kept out of the startup update script.

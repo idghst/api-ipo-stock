@@ -14,6 +14,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     configure_logging(settings.LOG_LEVEL)
     app = FastAPI(
         title=settings.app_name,
+        description=(
+            "IPO 목록/상세는 GET only. 데이터는 ipo-stock.v_offerings SELECT."
+        ),
         docs_url="/docs" if settings.docs_enabled else None,
         redoc_url="/redoc" if settings.docs_enabled else None,
         openapi_url="/openapi.json" if settings.docs_enabled else None,

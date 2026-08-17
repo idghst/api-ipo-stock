@@ -63,30 +63,14 @@ class FakeQuery:
         self.responses = responses
         self.columns: tuple[str, ...] = ()
         self.count: object | None = None
-        self.payload: dict[str, object] | None = None
         self.filters: list[tuple[str, object]] = []
         self.ordering: list[tuple[str, bool, bool | None]] = []
         self.range_values: tuple[int, int] | None = None
         self.limit_value: int | None = None
-        self.operation: str | None = None
 
     def select(self, *columns: str, count: object | None = None) -> "FakeQuery":
         self.columns = columns
         self.count = count
-        return self
-
-    def insert(self, payload: dict[str, object]) -> "FakeQuery":
-        self.operation = "insert"
-        self.payload = payload
-        return self
-
-    def update(self, payload: dict[str, object]) -> "FakeQuery":
-        self.operation = "update"
-        self.payload = payload
-        return self
-
-    def delete(self) -> "FakeQuery":
-        self.operation = "delete"
         return self
 
     def eq(self, column: str, value: object) -> "FakeQuery":
@@ -118,41 +102,15 @@ class FakeQuery:
         return response
 
 
-class FakeRpc:
-    def __init__(
-        self, fn: str, params: object, responses: list[FakeResponse | Exception]
-    ) -> None:
-        self.fn = fn
-        self.params = params
-        self.responses = responses
-
-    async def execute(self) -> FakeResponse:
-        response = self.responses.pop(0)
-        if isinstance(response, Exception):
-            raise response
-        return response
-
-
 class FakeSupabase:
-    def __init__(
-        self,
-        *responses: FakeResponse | Exception,
-        rpc_responses: list[FakeResponse | Exception] | None = None,
-    ) -> None:
+    def __init__(self, *responses: FakeResponse | Exception) -> None:
         self.responses = list(responses)
-        self.rpc_responses = list(rpc_responses or [])
         self.queries: list[FakeQuery] = []
-        self.rpc_calls: list[FakeRpc] = []
 
     def table(self, name: str) -> FakeQuery:
         query = FakeQuery(name, self.responses)
         self.queries.append(query)
         return query
-
-    def rpc(self, fn: str, params: object = None) -> FakeRpc:
-        call = FakeRpc(fn, params, self.rpc_responses)
-        self.rpc_calls.append(call)
-        return call
 
 
 class FakeHttpClient:
@@ -240,74 +198,38 @@ def test_list_ipo_stocks_uses_secret_client_and_returns_camel_case(
     assert fake.queries[0].range_values == (5, 29)
 
 
-def test_create_ipo_stock_rejects_live_write_without_hitting_ipo_stocks(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake = FakeSupabase()
-    client, _, _ = _client_with_fake_admin(monkeypatch, fake)
+def test_ipo_stock_writes_are_not_routed() -> None:
+    client = TestClient(_app())
+    headers = {"X-Admin-Key": "administrator-secret"}
 
-    response = client.post(
-        "/api/v1/ipo-stocks",
-        headers={"X-Admin-Key": "administrator-secret"},
-        json={
-            "companyName": "테스트 기업",
-            "ticker": "test",
-            "market": "KOSDAQ",
-            "offerPrice": 12000,
-            "subscriptionStart": "2026-08-10",
-            "subscriptionEnd": "2026-08-11",
-            "listingDate": "2026-08-20",
-            "memo": "관리 대상",
-        },
+    created = client.post("/api/v1/ipo-stocks", headers=headers, json={})
+    updated = client.patch(
+        f"/api/v1/ipo-stocks/{IPO_STOCK['id']}", headers=headers, json={}
     )
+    deleted = client.delete(f"/api/v1/ipo-stocks/{IPO_STOCK['id']}", headers=headers)
 
-    assert response.status_code == 422
-    assert response.json()["code"] == "unsupported_write_target"
-    assert response.json()["message"] == "IPO stock writes are not supported"
-    assert fake.queries == []
+    assert created.status_code == 405
+    assert updated.status_code == 405
+    assert deleted.status_code == 405
 
 
-def test_create_ipo_stock_rejects_snake_case_payload() -> None:
-    response = TestClient(_app()).post(
-        "/api/v1/ipo-stocks",
-        headers={"X-Admin-Key": "administrator-secret"},
-        json={"company_name": "테스트 기업"},
+def test_tables_and_routines_are_not_mounted() -> None:
+    client = TestClient(_app())
+    headers = {"X-Admin-Key": "administrator-secret"}
+
+    assert client.get("/api/v1/tables", headers=headers).status_code == 404
+    assert client.get("/api/v1/routines", headers=headers).status_code == 404
+
+
+def test_openapi_exposes_read_only_surface() -> None:
+    spec = TestClient(_app()).get("/openapi.json").json()
+    paths = spec["paths"]
+
+    assert set(paths["/api/v1/ipo-stocks"]) == {"get"}
+    assert set(paths["/api/v1/ipo-stocks/{ipo_stock_id}"]) == {"get"}
+    assert not any(
+        path.startswith(("/api/v1/tables", "/api/v1/routines")) for path in paths
     )
-
-    assert response.status_code == 422
-    assert response.json()["code"] == "validation_error"
-
-
-def test_create_ipo_stock_rejects_invalid_subscription_range() -> None:
-    response = TestClient(_app()).post(
-        "/api/v1/ipo-stocks",
-        headers={"X-Admin-Key": "administrator-secret"},
-        json={
-            "companyName": "테스트 기업",
-            "subscriptionStart": "2026-08-11",
-            "subscriptionEnd": "2026-08-10",
-        },
-    )
-
-    assert response.status_code == 422
-    assert response.json()["code"] == "validation_error"
-
-
-def test_create_ipo_stock_does_not_invent_source_no(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake = FakeSupabase()
-    client, _, _ = _client_with_fake_admin(monkeypatch, fake)
-
-    response = client.post(
-        "/api/v1/ipo-stocks",
-        headers={"X-Admin-Key": "administrator-secret"},
-        json={"companyName": "테스트 기업", "ticker": "TEST"},
-    )
-
-    assert response.status_code == 422
-    assert response.json()["code"] == "unsupported_write_target"
-    assert fake.queries == []
 
 
 def test_get_ipo_stock_exposes_view_columns_and_status_raw(
@@ -398,82 +320,6 @@ def test_get_ipo_stock_returns_camel_case_or_not_found(
     assert missing.json()["code"] == "ipo_stock_not_found"
 
 
-def test_patch_ipo_stock_rejects_live_write(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake = FakeSupabase()
-    client, _, _ = _client_with_fake_admin(monkeypatch, fake)
-
-    updated = client.patch(
-        f"/api/v1/ipo-stocks/{IPO_STOCK['id']}",
-        headers={"X-Admin-Key": "administrator-secret"},
-        json={"memo": None},
-    )
-    missing = client.patch(
-        "/api/v1/ipo-stocks/019fc702-5c1b-7c1a-80f0-5f510de0f172",
-        headers={"X-Admin-Key": "administrator-secret"},
-        json={"status": "listed"},
-    )
-
-    assert updated.status_code == 422
-    assert updated.json()["code"] == "unsupported_write_target"
-    assert missing.status_code == 422
-    assert missing.json()["code"] == "unsupported_write_target"
-    assert fake.queries == []
-
-
-def test_patch_ipo_stock_rejects_empty_payload() -> None:
-    response = TestClient(_app()).patch(
-        f"/api/v1/ipo-stocks/{IPO_STOCK['id']}",
-        headers={"X-Admin-Key": "administrator-secret"},
-        json={},
-    )
-
-    assert response.status_code == 422
-    assert response.json()["code"] == "validation_error"
-
-
-@pytest.mark.parametrize("payload", [{"companyName": None}, {"status": None}])
-def test_patch_ipo_stock_rejects_null_for_required_fields(
-    monkeypatch: pytest.MonkeyPatch,
-    payload: dict[str, None],
-) -> None:
-    fake = FakeSupabase()
-    client, _, _ = _client_with_fake_admin(monkeypatch, fake)
-
-    response = client.patch(
-        f"/api/v1/ipo-stocks/{IPO_STOCK['id']}",
-        headers={"X-Admin-Key": "administrator-secret"},
-        json=payload,
-    )
-
-    assert response.status_code == 422
-    assert response.json()["code"] == "validation_error"
-    assert fake.queries == []
-
-
-def test_delete_ipo_stock_rejects_live_write(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake = FakeSupabase()
-    client, _, _ = _client_with_fake_admin(monkeypatch, fake)
-
-    deleted = client.delete(
-        f"/api/v1/ipo-stocks/{IPO_STOCK['id']}",
-        headers={"X-Admin-Key": "administrator-secret"},
-    )
-    missing = client.delete(
-        "/api/v1/ipo-stocks/019fc702-5c1b-7c1a-80f0-5f510de0f172",
-        headers={"X-Admin-Key": "administrator-secret"},
-    )
-
-    assert deleted.status_code == 422
-    assert deleted.json()["code"] == "unsupported_write_target"
-    assert missing.status_code == 422
-    assert missing.json()["code"] == "unsupported_write_target"
-    assert fake.queries == []
-
-
 def test_list_ipo_stocks_rejects_missing_count(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -550,4 +396,45 @@ def test_ipo_stocks_migration_keeps_data_api_roles_unprivileged() -> None:
     assert (
         "grant select, insert, update, delete on table ipo_stock.ipo_stocks to service_role;"
         in migration
+    )
+
+
+def test_schema_admin_migration_keeps_functions_service_role_only() -> None:
+    migration = next(
+        (Path(__file__).parents[1] / "supabase" / "migrations").glob(
+            "*_add_schema_admin_functions.sql"
+        )
+    ).read_text()
+
+    assert "create or replace function ipo_stock.schema_list_tables()" in migration
+    assert "create or replace function ipo_stock.schema_add_column(" in migration
+    assert "create or replace function ipo_stock.schema_drop_column(" in migration
+    assert "pg_notify('pgrst', 'reload schema')" in migration
+    assert (
+        "revoke all on function ipo_stock.schema_list_tables() from public, anon, authenticated;"
+        in migration
+    )
+    assert (
+        "grant execute on function ipo_stock.schema_list_tables() to service_role;"
+        in migration
+    )
+    hyphen = next(
+        (Path(__file__).parents[1] / "supabase" / "migrations").glob(
+            "*_add_ipo_stock_hyphen_schema_admin.sql"
+        )
+    ).read_text()
+    assert 'create or replace function "ipo-stock".schema_list_tables()' in hyphen
+    assert 'create or replace function "ipo-stock".schema_list_routines()' in hyphen
+    assert (
+        'revoke all on function "ipo-stock".schema_list_routines() from public, anon, authenticated;'
+        in hyphen
+    )
+    revoke = next(
+        (Path(__file__).parents[1] / "supabase" / "migrations").glob(
+            "*_revoke_ipo_stock_backfill_from_data_api.sql"
+        )
+    ).read_text()
+    assert (
+        'revoke all on function "ipo-stock".backfill_batch(json) from public, anon, authenticated;'
+        in revoke
     )
