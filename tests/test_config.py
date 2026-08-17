@@ -12,7 +12,7 @@ def test_schema_cannot_be_overridden(monkeypatch: pytest.MonkeyPatch) -> None:
         SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
     )
 
-    assert settings.supabase_schema == "ipo-stock"
+    assert settings.supabase_schema == "ipo_stock"
 
 
 def test_production_disables_docs_by_default() -> None:

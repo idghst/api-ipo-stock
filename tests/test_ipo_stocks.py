@@ -438,3 +438,24 @@ def test_schema_admin_migration_keeps_functions_service_role_only() -> None:
         'revoke all on function "ipo-stock".backfill_batch(json) from public, anon, authenticated;'
         in revoke
     )
+
+
+def test_v_offerings_wrapper_migration_is_service_role_select_only() -> None:
+    migration = next(
+        (Path(__file__).parents[1] / "supabase" / "migrations").glob(
+            "*_add_ipo_stock_v_offerings_view.sql"
+        )
+    ).read_text()
+
+    assert "create schema if not exists ipo_stock;" in migration
+    assert "with (security_invoker = true)" in migration
+    assert 'as select * from "ipo-stock".v_offerings' in migration
+    assert (
+        "revoke all on table ipo_stock.v_offerings from public, anon, authenticated"
+        in migration
+    )
+    assert "grant select on table ipo_stock.v_offerings to service_role" in migration
+    assert "grant insert" not in migration.lower()
+    assert "grant update" not in migration.lower()
+    assert "grant delete" not in migration.lower()
+    assert "notify pgrst, 'reload schema'" in migration

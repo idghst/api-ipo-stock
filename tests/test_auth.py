@@ -150,7 +150,7 @@ async def test_auth_context_scopes_verified_token_and_closes_client(
     assert contexts[0].client is supabase_client
     assert supabase_client.postgrest.token == "token-123"
     assert http_client.closed is True
-    assert options[0].schema == "ipo-stock"
+    assert options[0].schema == "ipo_stock"
     assert options[0].persist_session is False
     assert options[0].auto_refresh_token is False
     assert options[0].postgrest_client_timeout == 5.0

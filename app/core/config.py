@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     IPO_STOCK_API_KEY: SecretStr | None = None
 
     app_name: ClassVar[str] = "IPO Stock API"
-    supabase_schema: ClassVar[str] = "ipo-stock"
+    supabase_schema: ClassVar[str] = "ipo_stock"
 
     @field_validator("CORS_ORIGINS")
     @classmethod
