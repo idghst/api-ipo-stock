@@ -43,6 +43,7 @@ class FakeQuery:
         ("23514", 422, "invalid_row"),
         ("23502", 422, "not_null_violation"),
         ("42501", 403, "database_access_denied"),
+        ("PGRST002", 503, "database_unavailable"),
         ("XX000", 502, "database_request_failed"),
     ],
 )

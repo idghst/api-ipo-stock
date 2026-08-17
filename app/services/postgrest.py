@@ -18,6 +18,7 @@ _DEFAULT_ERRORS: dict[str, CodeError] = {
     "23514": (422, "invalid_row", "Row data is invalid"),
     "23502": (422, "not_null_violation", "A required value is missing"),
     "42501": (403, "database_access_denied", "Database access was denied"),
+    "PGRST002": (503, "database_unavailable", "Database is unavailable"),
 }
 
 
