@@ -6,9 +6,9 @@ from postgrest.exceptions import APIError
 
 from app.core.errors import ApiError
 from app.services.postgrest import (
+    ensure_row,
     execute_query,
     execute_rpc,
-    ensure_row,
     invalid_response,
     map_postgrest_error,
 )
