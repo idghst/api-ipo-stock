@@ -2,7 +2,8 @@
 
 `ipo-stock` Supabase schema를 사용하는 FastAPI 서비스입니다. Vercel에는 Preview와
 Production을 분리합니다. `/api/v1/auth/me`는 기존처럼 Supabase Auth JWT로 검증하고,
-IPO 관리 CRUD는 서버 전용 `X-Admin-Key`와 Supabase secret key client로만 처리합니다.
+IPO 목록/상세는 서버 전용 `X-Admin-Key`와 secret key client로 `"ipo-stock".v_offerings`만
+SELECT합니다.
 
 ## Local development
 
@@ -23,7 +24,7 @@ CORS_ORIGINS=["http://localhost:3000"]
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_PUBLISHABLE_KEY=your_publishable_key
 SUPABASE_TIMEOUT_SECONDS=5
-# IPO 관리 CRUD에 필요. 브라우저와 클라이언트 번들에 절대 노출 금지.
+# IPO 목록/상세에 필요. 브라우저와 클라이언트 번들에 절대 노출 금지.
 SUPABASE_SECRET_KEY=
 # 충분히 긴 난수. 예: openssl rand -hex 32
 IPO_STOCK_API_KEY=
@@ -90,7 +91,7 @@ curl -i \
 
 ## IPO stock admin API
 
-모든 IPO 관리 요청은 아래 헤더가 필요합니다. `IPO_STOCK_API_KEY`와
+모든 IPO 요청은 아래 헤더가 필요합니다. `IPO_STOCK_API_KEY`와
 `SUPABASE_SECRET_KEY` 중 하나라도 없으면 운영 환경은 시작하지 않으며, development에서는
 관리 요청만 `503`으로 거부됩니다. 키가 틀리거나 없으면 동일한 `401` 오류를 반환합니다.
 
@@ -98,13 +99,17 @@ curl -i \
 X-Admin-Key: <IPO_STOCK_API_KEY>
 ```
 
+도메인 경로 `GET /api/v1/ipo-stocks`, `GET /api/v1/ipo-stocks/{id}`는
+`"ipo-stock".v_offerings` SELECT만 사용합니다. `POST`/`PATCH`/`DELETE`는
+`422 unsupported_write_target`입니다.
+
 | Method | Path | Response |
 | --- | --- | --- |
 | `GET` | `/api/v1/ipo-stocks?limit=100&offset=0` | `{ "items": [...], "count": 42 }` |
-| `POST` | `/api/v1/ipo-stocks` | 생성된 IPO, `201` |
+| `POST` | `/api/v1/ipo-stocks` | `422 unsupported_write_target` |
 | `GET` | `/api/v1/ipo-stocks/{id}` | IPO 1건 |
-| `PATCH` | `/api/v1/ipo-stocks/{id}` | 수정된 IPO |
-| `DELETE` | `/api/v1/ipo-stocks/{id}` | `204` |
+| `PATCH` | `/api/v1/ipo-stocks/{id}` | `422 unsupported_write_target` |
+| `DELETE` | `/api/v1/ipo-stocks/{id}` | `422 unsupported_write_target` |
 | `GET` | `/api/v1/tables` | `ipo-stock` 테이블·뷰·컬럼 목록 |
 | `GET` | `/api/v1/tables/{table}` | 테이블 1개 |
 | `POST` | `/api/v1/tables/{table}/columns` | 컬럼 추가, `201` |
@@ -127,29 +132,12 @@ X-Admin-Key: <IPO_STOCK_API_KEY>
 npx --yes supabase@latest db push
 ```
 
-목록의 `limit`은 `1`~`200`이며 기본값은 `100`, `offset`은 `0` 이상입니다. request와
-response는 모두 camelCase JSON만 사용합니다. `companyName`은 필수이고 나머지 필드는
-선택입니다. `offerPrice`는 양의 정수 KRW, 날짜는 `YYYY-MM-DD`, `status`는 아래 값만
-허용합니다.
-
-```json
-{
-  "companyName": "예시 기업",
-  "ticker": "EXAMPLE",
-  "market": "KOSDAQ",
-  "offerPrice": 12000,
-  "subscriptionStart": "2026-08-10",
-  "subscriptionEnd": "2026-08-11",
-  "listingDate": "2026-08-20",
-  "status": "scheduled",
-  "memo": "메모"
-}
-```
-
-`status`: `scheduled`, `subscription_open`, `subscription_closed`, `listed`,
-`cancelled`. `PATCH`에서는 생략한 필드는 유지하고 `null`을 보낸 선택 필드는 지웁니다.
-빈 PATCH body, snake_case field, 잘못된 날짜 범위는 `422`; 존재하지 않는 ID는 `404`;
-이미 사용 중인 ticker는 `409` 오류 envelope를 반환합니다.
+목록의 `limit`은 `1`~`200`이며 기본값은 `100`, `offset`은 `0` 이상입니다. response는
+camelCase JSON입니다. 기존 필드(`companyName`, `ticker`, `market`, `offerPrice`,
+`subscriptionStart`, `subscriptionEnd`, `listingDate`, `status`, `memo`)는 유지하고,
+뷰 컬럼은 값이 있을 때만 additive로 내려갑니다. `status`는 `scheduled`,
+`subscription_open`, `subscription_closed`, `listed`, `cancelled`로 정규화하고
+원문은 `statusRaw`입니다. 없는 ID는 `404`입니다.
 
 ```bash
 curl -i \
@@ -197,7 +185,7 @@ Vercel Dashboard에서 **같은 `fastapi-ipo-stock` 프로젝트의** Preview와
 | `SUPABASE_URL` | Preview Supabase URL | Production Supabase URL | 서비스별 별도 프로젝트 |
 | `SUPABASE_PUBLISHABLE_KEY` | Preview publishable key | Production publishable key | 요청 JWT 검증·RLS 호출 |
 | `SUPABASE_TIMEOUT_SECONDS` | `5` | `5` | 양수 초 단위 |
-| `SUPABASE_SECRET_KEY` | 필수 | 필수 | IPO CRUD용 서버 secret key; `sb_publishable_` 사용 불가 |
+| `SUPABASE_SECRET_KEY` | 필수 | 필수 | IPO 목록/상세용 서버 secret key; `sb_publishable_` 사용 불가 |
 | `IPO_STOCK_API_KEY` | 필수 | 필수 | 긴 난수; 관리페이지 서버만 `X-Admin-Key`로 전달 |
 
 배포 전에 CLI 상태와 build 인자를 확인하고, Vercel 프로젝트
@@ -262,7 +250,7 @@ vercel rollback <deployment-url-or-id>
 3. `500`이면 배포 환경 변수와 import 오류를, `503`이면 Supabase 상태·네트워크·timeout을
    확인합니다.
 4. `/auth/me`의 `401`이면 브라우저 access token과 해당 Supabase 프로젝트를 대조합니다.
-5. IPO CRUD의 `401`이면 관리페이지 서버의 `X-Admin-Key`만 확인합니다. 키 원문은 로그에
+5. IPO 목록/상세의 `401`이면 관리페이지 서버의 `X-Admin-Key`만 확인합니다. 키 원문은 로그에
    남기지 않습니다.
 6. `403` 또는 빈 결과면 `ipo-stock` exposed schema, `service_role` table grant, RLS 상태를
    확인합니다. `anon`/`authenticated`에 권한 또는 policy를 추가하면 안 됩니다.

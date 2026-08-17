@@ -7,9 +7,8 @@ import pytest
 from postgrest.exceptions import APIError
 
 from app.core.errors import ApiError
-from app.schemas import IpoStockCreate, IpoStockUpdate
 from app.services import ipo_stocks
-from tests.test_ipo_stocks import IPO_STOCK, FakeResponse, FakeSupabase
+from tests.test_ipo_stocks import OFFERING_ROW, FakeResponse, FakeSupabase
 
 
 def _api_error(code: str) -> APIError:
@@ -80,7 +79,7 @@ async def test_execute_rejects_invalid_response_shape() -> None:
 
 @pytest.mark.asyncio
 async def test_list_rejects_missing_count() -> None:
-    client = FakeSupabase(FakeResponse([IPO_STOCK], count=None))
+    client = FakeSupabase(FakeResponse([OFFERING_ROW], count=None))
 
     with pytest.raises(ApiError) as caught:
         await ipo_stocks.list_ipo_stocks(client, limit=10, offset=0)
@@ -91,7 +90,7 @@ async def test_list_rejects_missing_count() -> None:
 
 @pytest.mark.asyncio
 async def test_list_rejects_boolean_count() -> None:
-    client = FakeSupabase(FakeResponse([IPO_STOCK], count=True))
+    client = FakeSupabase(FakeResponse([OFFERING_ROW], count=True))
 
     with pytest.raises(ApiError) as caught:
         await ipo_stocks.list_ipo_stocks(client, limit=10, offset=0)
@@ -230,24 +229,3 @@ async def test_output_maps_gongmo_status_from_dates() -> None:
     assert (await ipo_stocks.get_ipo_stock(client, "35")).status == "subscription_open"
     assert (await ipo_stocks.get_ipo_stock(client, "34")).status == "scheduled"
     assert (await ipo_stocks.get_ipo_stock(client, "33")).status == "listed"
-
-
-@pytest.mark.asyncio
-async def test_domain_writes_are_blocked() -> None:
-    client = FakeSupabase()
-
-    with pytest.raises(ApiError) as created:
-        await ipo_stocks.create_ipo_stock(
-            client, IpoStockCreate.model_validate({"companyName": "테스트"})
-        )
-    with pytest.raises(ApiError) as updated:
-        await ipo_stocks.update_ipo_stock(
-            client, "1", IpoStockUpdate.model_validate({"memo": "x"})
-        )
-    with pytest.raises(ApiError) as deleted:
-        await ipo_stocks.delete_ipo_stock(client, "1")
-
-    assert created.value.code == "unsupported_write_target"
-    assert updated.value.code == "unsupported_write_target"
-    assert deleted.value.code == "unsupported_write_target"
-    assert client.queries == []

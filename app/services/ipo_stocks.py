@@ -6,25 +6,12 @@ from zoneinfo import ZoneInfo
 from postgrest.types import CountMethod
 from pydantic import ValidationError
 
-from app.core.errors import ApiError
-from app.schemas import (
-    IpoStockCreate,
-    IpoStockListOut,
-    IpoStockOut,
-    IpoStockStatus,
-    IpoStockUpdate,
-)
+from app.schemas import IpoStockListOut, IpoStockOut, IpoStockStatus
 from app.services.postgrest import ensure_row, execute_query, invalid_response
 from supabase import AsyncClient
 
 READ_TABLE = "v_offerings"
 _NOT_FOUND = ("ipo_stock_not_found", "IPO stock not found")
-_WRITE_BLOCKED = ApiError(
-    422,
-    "unsupported_write_target",
-    "Live schema has no ipo_stocks table. Write companies/offerings via "
-    "/api/v1/tables or POST /api/v1/routines/backfill_batch.",
-)
 _STATUS_BY_LABEL = {
     "신규상장": "listed",
     "공모주": "scheduled",
@@ -112,59 +99,56 @@ def _status_raw(value: object) -> str | None:
 
 
 def _output(row: dict[str, Any]) -> IpoStockOut:
-    if "company_name" in row:
-        data = {**row, "id": str(row["id"])}
-    else:
-        data = {
-            "id": str(row.get("id", "")),
-            "company_name": row.get("name"),
-            "ticker": row.get("stock_code"),
-            "market": row.get("market"),
-            "offer_price": _int_or_none(row.get("final_price_krw")),
-            "subscription_start": row.get("subscribe_start"),
-            "subscription_end": row.get("subscribe_end"),
-            "listing_date": row.get("listing_date"),
-            "status": _status(row.get("status"), row),
-            "status_raw": _status_raw(row.get("status")),
-            "memo": row.get("note"),
-            "source_no": row.get("source_no"),
-            "detail_url": row.get("detail_url"),
-            "underwriters": row.get("underwriters"),
-            "hope_price": row.get("hope_price"),
-            "hope_price_low": _number(row.get("hope_price_low")),
-            "hope_price_high": _number(row.get("hope_price_high")),
-            "final_price": row.get("final_price"),
-            "offering_shares": row.get("offering_shares"),
-            "offering_shares_count": _number(row.get("offering_shares_count")),
-            "par_value": row.get("par_value"),
-            "offering_amount": row.get("offering_amount"),
-            "offering_mix": row.get("offering_mix"),
-            "retail_comp_rate": row.get("retail_comp_rate"),
-            "inst_comp_rate": row.get("inst_comp_rate"),
-            "retail_apps": row.get("retail_apps"),
-            "bookbuilding_start": row.get("bookbuilding_start"),
-            "bookbuilding_end": row.get("bookbuilding_end"),
-            "payment_date": row.get("payment_date"),
-            "refund_date": row.get("refund_date"),
-            "allotment_date": row.get("allotment_date"),
-            "ir_period": row.get("ir_period"),
-            "lockup_ratio": row.get("lockup_ratio"),
-            "industry": row.get("industry"),
-            "ceo": row.get("ceo"),
-            "hq": row.get("hq"),
-            "products": row.get("products"),
-            "company_type": row.get("company_type"),
-            "homepage": row.get("homepage"),
-            "major_shareholder": row.get("major_shareholder"),
-            "revenue": row.get("revenue"),
-            "net_income": row.get("net_income"),
-            "capital": row.get("capital"),
-            "open_price_krw": _number(row.get("open_price_krw")),
-            "open_vs_ipo_pct": _number(row.get("open_vs_ipo_pct")),
-            "first_close_krw": _number(row.get("first_close_krw")),
-            "collected_at": row.get("collected_at"),
-            "updated_at": row.get("updated_at"),
-        }
+    data = {
+        "id": str(row.get("id", "")),
+        "company_name": row.get("name"),
+        "ticker": row.get("stock_code"),
+        "market": row.get("market"),
+        "offer_price": _int_or_none(row.get("final_price_krw")),
+        "subscription_start": row.get("subscribe_start"),
+        "subscription_end": row.get("subscribe_end"),
+        "listing_date": row.get("listing_date"),
+        "status": _status(row.get("status"), row),
+        "status_raw": _status_raw(row.get("status")),
+        "memo": row.get("note"),
+        "source_no": row.get("source_no"),
+        "detail_url": row.get("detail_url"),
+        "underwriters": row.get("underwriters"),
+        "hope_price": row.get("hope_price"),
+        "hope_price_low": _number(row.get("hope_price_low")),
+        "hope_price_high": _number(row.get("hope_price_high")),
+        "final_price": row.get("final_price"),
+        "offering_shares": row.get("offering_shares"),
+        "offering_shares_count": _number(row.get("offering_shares_count")),
+        "par_value": row.get("par_value"),
+        "offering_amount": row.get("offering_amount"),
+        "offering_mix": row.get("offering_mix"),
+        "retail_comp_rate": row.get("retail_comp_rate"),
+        "inst_comp_rate": row.get("inst_comp_rate"),
+        "retail_apps": row.get("retail_apps"),
+        "bookbuilding_start": row.get("bookbuilding_start"),
+        "bookbuilding_end": row.get("bookbuilding_end"),
+        "payment_date": row.get("payment_date"),
+        "refund_date": row.get("refund_date"),
+        "allotment_date": row.get("allotment_date"),
+        "ir_period": row.get("ir_period"),
+        "lockup_ratio": row.get("lockup_ratio"),
+        "industry": row.get("industry"),
+        "ceo": row.get("ceo"),
+        "hq": row.get("hq"),
+        "products": row.get("products"),
+        "company_type": row.get("company_type"),
+        "homepage": row.get("homepage"),
+        "major_shareholder": row.get("major_shareholder"),
+        "revenue": row.get("revenue"),
+        "net_income": row.get("net_income"),
+        "capital": row.get("capital"),
+        "open_price_krw": _number(row.get("open_price_krw")),
+        "open_vs_ipo_pct": _number(row.get("open_vs_ipo_pct")),
+        "first_close_krw": _number(row.get("first_close_krw")),
+        "collected_at": row.get("collected_at"),
+        "updated_at": row.get("updated_at"),
+    }
     try:
         return IpoStockOut.model_validate(data)
     except ValidationError as error:
@@ -194,22 +178,3 @@ async def get_ipo_stock(client: AsyncClient, ipo_stock_id: str) -> IpoStockOut:
         client.table(READ_TABLE).select("*").eq("id", ipo_stock_id).limit(1)
     )
     return _output(_ensure_row(rows))
-
-
-async def create_ipo_stock(
-    _client: AsyncClient,
-    _payload: IpoStockCreate,
-) -> IpoStockOut:
-    raise _WRITE_BLOCKED
-
-
-async def update_ipo_stock(
-    _client: AsyncClient,
-    _ipo_stock_id: str,
-    _payload: IpoStockUpdate,
-) -> IpoStockOut:
-    raise _WRITE_BLOCKED
-
-
-async def delete_ipo_stock(_client: AsyncClient, _ipo_stock_id: str) -> None:
-    raise _WRITE_BLOCKED

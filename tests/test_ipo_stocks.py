@@ -24,6 +24,18 @@ IPO_STOCK = {
     "status": "scheduled",
     "memo": "관리 대상",
 }
+OFFERING_ROW = {
+    "id": IPO_STOCK["id"],
+    "name": "테스트 기업",
+    "stock_code": "TEST",
+    "market": "KOSDAQ",
+    "final_price_krw": 12000,
+    "subscribe_start": "2026-08-10",
+    "subscribe_end": "2026-08-11",
+    "listing_date": "2026-08-20",
+    "status": "scheduled",
+    "note": "관리 대상",
+}
 
 IPO_STOCK_JSON = {
     "id": IPO_STOCK["id"],
@@ -211,7 +223,7 @@ def test_invalid_administrator_key_does_not_create_secret_client(
 def test_list_ipo_stocks_uses_secret_client_and_returns_camel_case(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake = FakeSupabase(FakeResponse([IPO_STOCK], count=1))
+    fake = FakeSupabase(FakeResponse([OFFERING_ROW], count=1))
     client, received_keys, http_client = _client_with_fake_admin(monkeypatch, fake)
 
     response = client.get(
@@ -251,7 +263,7 @@ def test_create_ipo_stock_rejects_live_write_without_hitting_ipo_stocks(
 
     assert response.status_code == 422
     assert response.json()["code"] == "unsupported_write_target"
-    assert "/api/v1/tables" in response.json()["message"]
+    assert response.json()["message"] == "IPO stock writes are not supported"
     assert fake.queries == []
 
 
@@ -351,7 +363,7 @@ def test_get_ipo_stock_exposes_view_columns_and_status_raw(
 def test_get_ipo_stock_ignores_unknown_database_columns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake = FakeSupabase(FakeResponse([{**IPO_STOCK, "sector": "tech"}]))
+    fake = FakeSupabase(FakeResponse([{**OFFERING_ROW, "sector": "tech"}]))
     client, _, _ = _client_with_fake_admin(monkeypatch, fake)
 
     response = client.get(
@@ -366,7 +378,7 @@ def test_get_ipo_stock_ignores_unknown_database_columns(
 def test_get_ipo_stock_returns_camel_case_or_not_found(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake = FakeSupabase(FakeResponse([IPO_STOCK]), FakeResponse([]))
+    fake = FakeSupabase(FakeResponse([OFFERING_ROW]), FakeResponse([]))
     client, _, _ = _client_with_fake_admin(monkeypatch, fake)
 
     found = client.get(
@@ -380,6 +392,7 @@ def test_get_ipo_stock_returns_camel_case_or_not_found(
 
     assert found.status_code == 200
     assert found.json() == IPO_STOCK_JSON
+    assert fake.queries[0].table == "v_offerings"
     assert fake.queries[0].limit_value == 1
     assert missing.status_code == 404
     assert missing.json()["code"] == "ipo_stock_not_found"
@@ -464,7 +477,7 @@ def test_delete_ipo_stock_rejects_live_write(
 def test_list_ipo_stocks_rejects_missing_count(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake = FakeSupabase(FakeResponse([IPO_STOCK], count=None))
+    fake = FakeSupabase(FakeResponse([OFFERING_ROW], count=None))
     client, _, _ = _client_with_fake_admin(monkeypatch, fake)
 
     response = client.get(

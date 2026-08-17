@@ -2,6 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
+from app.core.errors import ApiError
 from app.integrations.supabase import get_admin_api_client
 from app.schemas import IpoStockCreate, IpoStockListOut, IpoStockOut, IpoStockUpdate
 from app.services import ipo_stocks
@@ -9,6 +10,12 @@ from supabase import AsyncClient
 
 router = APIRouter(prefix="/ipo-stocks", tags=["ipo-stocks"])
 AdminClient = Annotated[AsyncClient, Depends(get_admin_api_client)]
+# ponytail: keep write routes as 422 so existing clients/tests stay stable
+_WRITE_BLOCKED = ApiError(
+    422,
+    "unsupported_write_target",
+    "IPO stock writes are not supported",
+)
 
 
 @router.get("", response_model=IpoStockListOut, response_model_by_alias=True)
@@ -27,10 +34,10 @@ async def list_ipo_stocks(
     status_code=status.HTTP_201_CREATED,
 )
 async def create_ipo_stock(
-    payload: IpoStockCreate,
-    client: AdminClient,
+    _payload: IpoStockCreate,
+    _client: AdminClient,
 ) -> IpoStockOut:
-    return await ipo_stocks.create_ipo_stock(client, payload)
+    raise _WRITE_BLOCKED
 
 
 @router.get(
@@ -49,12 +56,12 @@ async def get_ipo_stock(ipo_stock_id: str, client: AdminClient) -> IpoStockOut:
 )
 async def update_ipo_stock(
     ipo_stock_id: str,
-    payload: IpoStockUpdate,
-    client: AdminClient,
+    _payload: IpoStockUpdate,
+    _client: AdminClient,
 ) -> IpoStockOut:
-    return await ipo_stocks.update_ipo_stock(client, ipo_stock_id, payload)
+    raise _WRITE_BLOCKED
 
 
 @router.delete("/{ipo_stock_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_ipo_stock(ipo_stock_id: str, client: AdminClient) -> None:
-    await ipo_stocks.delete_ipo_stock(client, ipo_stock_id)
+async def delete_ipo_stock(ipo_stock_id: str, _client: AdminClient) -> None:
+    raise _WRITE_BLOCKED
