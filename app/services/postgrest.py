@@ -12,13 +12,20 @@ _DEFAULT_ERRORS: dict[str, CodeError] = {
     "PGRST205": (404, "table_not_found", "Table not found"),
     "42703": (404, "column_not_found", "Column not found"),
     "PGRST204": (404, "column_not_found", "Column not found"),
+    "42883": (404, "routine_not_found", "Routine not found"),
+    "PGRST202": (404, "routine_not_found", "Routine not found"),
     "42701": (409, "column_already_exists", "Column already exists"),
     "22023": (422, "invalid_schema_change", "Schema change is invalid"),
+    "22P02": (422, "invalid_row", "Row data is invalid"),
+    "23503": (409, "foreign_key_violation", "Foreign key constraint violated"),
     "23505": (409, "unique_violation", "Unique constraint violated"),
     "23514": (422, "invalid_row", "Row data is invalid"),
     "23502": (422, "not_null_violation", "A required value is missing"),
     "42501": (403, "database_access_denied", "Database access was denied"),
+    "PGRST000": (503, "database_unavailable", "Database is unavailable"),
+    "PGRST001": (503, "database_unavailable", "Database is unavailable"),
     "PGRST002": (503, "database_unavailable", "Database is unavailable"),
+    "PGRST106": (406, "schema_not_exposed", "Requested schema is not exposed"),
 }
 
 
