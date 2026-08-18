@@ -5,22 +5,12 @@ from postgrest.exceptions import APIError as PostgrestAPIError
 
 from app.core.errors import ApiError
 
-CodeError = tuple[int, str, str]
-
-_DEFAULT_ERRORS: dict[str, CodeError] = {
+_DEFAULT_ERRORS: dict[str, tuple[int, str, str]] = {
     "42P01": (404, "table_not_found", "Table not found"),
     "PGRST205": (404, "table_not_found", "Table not found"),
     "42703": (404, "column_not_found", "Column not found"),
     "PGRST204": (404, "column_not_found", "Column not found"),
-    "42883": (404, "routine_not_found", "Routine not found"),
-    "PGRST202": (404, "routine_not_found", "Routine not found"),
-    "42701": (409, "column_already_exists", "Column already exists"),
-    "22023": (422, "invalid_schema_change", "Schema change is invalid"),
     "22P02": (422, "invalid_row", "Row data is invalid"),
-    "23503": (409, "foreign_key_violation", "Foreign key constraint violated"),
-    "23505": (409, "unique_violation", "Unique constraint violated"),
-    "23514": (422, "invalid_row", "Row data is invalid"),
-    "23502": (422, "not_null_violation", "A required value is missing"),
     "42501": (403, "database_access_denied", "Database access was denied"),
     "PGRST000": (503, "database_unavailable", "Database is unavailable"),
     "PGRST001": (503, "database_unavailable", "Database is unavailable"),
@@ -29,11 +19,8 @@ _DEFAULT_ERRORS: dict[str, CodeError] = {
 }
 
 
-def map_postgrest_error(
-    error: PostgrestAPIError,
-    code_errors: dict[str, CodeError] | None = None,
-) -> ApiError:
-    mapped = {**_DEFAULT_ERRORS, **(code_errors or {})}.get(error.code or "")
+def map_postgrest_error(error: PostgrestAPIError) -> ApiError:
+    mapped = _DEFAULT_ERRORS.get(error.code or "")
     if mapped is None:
         return ApiError(502, "database_request_failed", "Database request failed")
     return ApiError(*mapped)
@@ -58,27 +45,19 @@ def ensure_row(
     return rows[0]
 
 
-async def _run(
-    query: Any,
-    *,
-    code_errors: dict[str, CodeError] | None = None,
-) -> Any:
+async def _run(query: Any) -> Any:
     try:
         return await query.execute()
     except PostgrestAPIError as error:
-        raise map_postgrest_error(error, code_errors) from error
+        raise map_postgrest_error(error) from error
     except httpx.HTTPError as error:
         raise ApiError(
             503, "database_unavailable", "Database is unavailable"
         ) from error
 
 
-async def execute_query(
-    query: Any,
-    *,
-    code_errors: dict[str, CodeError] | None = None,
-) -> tuple[list[dict[str, Any]], int | None]:
-    response = await _run(query, code_errors=code_errors)
+async def execute_query(query: Any) -> tuple[list[dict[str, Any]], int | None]:
+    response = await _run(query)
     data = response.data
     if not isinstance(data, list) or not all(isinstance(row, dict) for row in data):
         raise invalid_response()
@@ -86,11 +65,3 @@ async def execute_query(
     if count is not None and (not isinstance(count, int) or isinstance(count, bool)):
         raise invalid_response()
     return cast(list[dict[str, Any]], data), count
-
-
-async def execute_rpc(
-    query: Any,
-    *,
-    code_errors: dict[str, CodeError] | None = None,
-) -> Any:
-    return (await _run(query, code_errors=code_errors)).data

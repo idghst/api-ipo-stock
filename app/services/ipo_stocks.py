@@ -117,7 +117,7 @@ def _output(row: dict[str, Any]) -> IpoStockOut:
         "subscription_start": row.get("subscribe_start"),
         "subscription_end": row.get("subscribe_end"),
         "listing_date": row.get("listing_date"),
-        "status": _status(row.get("status"), row),
+        "status": _status(row.get("status_norm") or row.get("status"), row),
         "status_raw": _status_raw(row.get("status")),
         "memo": row.get("note"),
         "source_no": row.get("source_no"),

@@ -23,14 +23,14 @@ def _api_error(code: str) -> APIError:
 
 
 @pytest.mark.asyncio
-async def test_execute_maps_check_constraint_to_invalid_row() -> None:
+async def test_execute_maps_unknown_constraint_to_request_failed() -> None:
     client = FakeSupabase(_api_error("23514"))
 
     with pytest.raises(ApiError) as caught:
         await ipo_stocks.get_ipo_stock(client, "019fc702-5c1b-7c1a-80f0-5f510de0f171")
 
-    assert caught.value.status_code == 422
-    assert caught.value.code == "invalid_row"
+    assert caught.value.status_code == 502
+    assert caught.value.code == "database_request_failed"
 
 
 @pytest.mark.asyncio
