@@ -3,32 +3,27 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, get_args
 from zoneinfo import ZoneInfo
 
-from postgrest.types import CountMethod
 from pydantic import ValidationError
 
+from app.integrations.db import Connection
 from app.schemas import (
     IpoStockListOut,
     IpoStockOut,
     IpoStockStatus,
     IpoStockSummaryOut,
 )
-from app.services.postgrest import ensure_row, execute_query, invalid_response
-from supabase import AsyncClient
+from app.services.db import ensure_row, fetch_all, invalid_response
 
-READ_TABLE = "v_offerings"
 _NOT_FOUND = ("ipo_stock_not_found", "IPO stock not found")
 _SEOUL = ZoneInfo("Asia/Seoul")
 _UPCOMING_DAYS = 14
-_FETCH_PAGE = 1000
-_LIST_COLUMNS = (
-    "id,name,stock_code,market,status,final_price_krw,subscribe_start,"
-    "subscribe_end,listing_date,retail_comp_rate,inst_comp_rate,"
-    "underwriters,hope_price,note,source_no"
+_LIST_SQL = (
+    "select id, name, stock_code, market, status, final_price_krw, subscribe_start,"
+    " subscribe_end, listing_date, retail_comp_rate, inst_comp_rate,"
+    " underwriters, hope_price, note, source_no"
+    " from ipostock.v_offerings order by id"
 )
-
-
-async def _execute(query: Any) -> tuple[list[dict[str, Any]], int | None]:
-    return await execute_query(query)
+_DETAIL_SQL = "select * from ipostock.v_offerings where id = %s limit 1"
 
 
 def _ensure_row(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -255,27 +250,8 @@ def _matches(
     return not (date_to is not None and all(value > date_to for value in dates))
 
 
-async def _fetch_rows(client: AsyncClient, columns: str) -> list[dict[str, Any]]:
-    rows_all: list[dict[str, Any]] = []
-    offset = 0
-    while True:
-        rows, count = await _execute(
-            client.table(READ_TABLE)
-            .select(columns, count=CountMethod.exact)
-            .order("id")
-            .range(offset, offset + _FETCH_PAGE - 1)
-        )
-        if count is None:
-            raise invalid_response()
-        rows_all.extend(rows)
-        offset += _FETCH_PAGE
-        if offset >= count or not rows:
-            break
-    return rows_all
-
-
 async def list_ipo_stocks(
-    client: AsyncClient,
+    connection: Connection,
     *,
     limit: int,
     offset: int,
@@ -287,7 +263,7 @@ async def list_ipo_stocks(
 ) -> IpoStockListOut:
     today = _today()
     query = q.strip() if q else None
-    items = [_output(row) for row in await _fetch_rows(client, _LIST_COLUMNS)]
+    items = [_output(row) for row in await fetch_all(connection, _LIST_SQL)]
     filtered = [
         item
         for item in items
@@ -312,8 +288,6 @@ async def list_ipo_stocks(
     )
 
 
-async def get_ipo_stock(client: AsyncClient, ipo_stock_id: str) -> IpoStockOut:
-    rows, _ = await _execute(
-        client.table(READ_TABLE).select("*").eq("id", ipo_stock_id).limit(1)
-    )
+async def get_ipo_stock(connection: Connection, ipo_stock_id: str) -> IpoStockOut:
+    rows = await fetch_all(connection, _DETAIL_SQL, (ipo_stock_id,))
     return _output(_ensure_row(rows))

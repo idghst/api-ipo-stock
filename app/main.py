@@ -14,9 +14,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     configure_logging()
     app = FastAPI(
         title=settings.app_name,
-        description=(
-            "IPO 목록/상세는 GET only. 데이터는 ipo_stock.v_offerings SELECT."
-        ),
+        description=("IPO 목록/상세는 GET only. 데이터는 ipostock.v_offerings SELECT."),
     )
     app.state.settings = settings
     app.dependency_overrides[get_settings] = lambda: settings

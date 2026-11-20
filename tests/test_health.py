@@ -1,4 +1,6 @@
-import httpx
+from typing import Self
+
+import psycopg
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -11,10 +13,7 @@ from app.main import create_app
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(
-        SUPABASE_URL="https://test.supabase.co",
-        SUPABASE_PUBLISHABLE_KEY=SecretStr("sb_publishable_test"),
-    )
+    return Settings(DATABASE_URL=SecretStr("postgresql://app@db.test/ipostock"))
 
 
 @pytest.fixture
@@ -37,73 +36,88 @@ def test_liveness_returns_ok(client: TestClient) -> None:
 def test_readiness_maps_unavailable_dependency_to_sanitized_503(
     client: TestClient, app: FastAPI
 ) -> None:
-    from app.api.routes.health import probe_supabase
+    from app.api.routes.health import probe_database
 
     async def unavailable() -> None:
-        raise ApiError(503, "dependency_unavailable", "Supabase is unavailable")
+        raise ApiError(503, "dependency_unavailable", "Database is unavailable")
 
-    app.dependency_overrides[probe_supabase] = unavailable
+    app.dependency_overrides[probe_database] = unavailable
 
     response = client.get("/health/ready", headers={"X-Request-ID": "req-ready"})
 
     assert response.status_code == 503
     assert response.json() == {
         "code": "dependency_unavailable",
-        "message": "Supabase is unavailable",
+        "message": "Database is unavailable",
         "request_id": "req-ready",
     }
 
 
-def test_readiness_probes_auth_health_with_publishable_key_and_timeout(
+class FakeConnection:
+    def __init__(self, failure: Exception | None = None) -> None:
+        self.failure = failure
+        self.queries: list[str] = []
+        self.closed = False
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        self.closed = True
+
+    async def execute(self, query: str) -> None:
+        self.queries.append(query)
+        if self.failure is not None:
+            raise self.failure
+
+
+@pytest.mark.asyncio
+async def test_probe_database_runs_select_and_closes(
     monkeypatch: pytest.MonkeyPatch, settings: Settings
 ) -> None:
-    from app.api.routes.health import probe_supabase
+    from app.api.routes import health
 
-    observed: dict[str, object] = {}
+    connection = FakeConnection()
 
-    def healthy(url: str, **kwargs: object) -> httpx.Response:
-        observed["url"] = url
-        observed.update(kwargs)
-        return httpx.Response(204)
+    async def connect(_: Settings) -> FakeConnection:
+        return connection
 
-    monkeypatch.setattr("app.api.routes.health.httpx.get", healthy)
+    monkeypatch.setattr(health, "connect", connect)
 
-    probe_supabase(settings)
+    await health.probe_database(settings)
 
-    assert observed == {
-        "url": "https://test.supabase.co/auth/v1/health",
-        "headers": {"apikey": "sb_publishable_test"},
-        "timeout": 5.0,
-    }
+    assert connection.queries == ["select 1"]
+    assert connection.closed is True
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "failure",
     [
-        httpx.ConnectError("connection refused"),
-        httpx.Response(503),
+        "connect",
+        psycopg.OperationalError("server closed the connection"),
     ],
 )
-def test_probe_supabase_sanitizes_upstream_failures(
+async def test_probe_database_sanitizes_failures(
     monkeypatch: pytest.MonkeyPatch,
     settings: Settings,
-    failure: httpx.HTTPError | httpx.Response,
+    failure: str | Exception,
 ) -> None:
-    from app.api.routes.health import probe_supabase
+    from app.api.routes import health
 
-    def unavailable(_: str, **__: object) -> httpx.Response:
-        if isinstance(failure, Exception):
-            raise failure
-        return failure
+    async def connect(_: Settings) -> FakeConnection:
+        if failure == "connect":
+            raise ApiError(503, "database_unavailable", "Database is unavailable")
+        return FakeConnection(failure)  # type: ignore[arg-type]
 
-    monkeypatch.setattr("app.api.routes.health.httpx.get", unavailable)
+    monkeypatch.setattr(health, "connect", connect)
 
     with pytest.raises(ApiError) as caught:
-        probe_supabase(settings)
+        await health.probe_database(settings)
 
     assert caught.value.status_code == 503
     assert caught.value.code == "dependency_unavailable"
-    assert caught.value.message == "Supabase is unavailable"
+    assert caught.value.message == "Database is unavailable"
 
 
 def test_factory_injects_supplied_settings_and_root_message(
@@ -120,9 +134,7 @@ def test_factory_injects_supplied_settings_and_root_message(
 def test_production_host_disables_docs_and_openapi() -> None:
     app = create_app(
         Settings(
-            SUPABASE_URL="https://example.supabase.co",
-            SUPABASE_PUBLISHABLE_KEY=SecretStr("sb_publishable_test"),
-            SUPABASE_SECRET_KEY=SecretStr("sb_secret_test"),
+            DATABASE_URL=SecretStr("postgresql://app@db.example.com/ipostock"),
             IPO_STOCK_API_KEY=SecretStr("administrator-secret"),
         )
     )
@@ -149,10 +161,7 @@ def test_localhost_and_test_hosts_expose_docs(settings: Settings) -> None:
 
 def test_production_host_without_admin_credentials_returns_503() -> None:
     app = create_app(
-        Settings(
-            SUPABASE_URL="https://example.supabase.co",
-            SUPABASE_PUBLISHABLE_KEY=SecretStr("sb_publishable_test"),
-        )
+        Settings(DATABASE_URL=SecretStr("postgresql://app@db.example.com/ipostock"))
     )
     client = TestClient(app, base_url="http://api.example.com")
 
@@ -162,23 +171,6 @@ def test_production_host_without_admin_credentials_returns_503() -> None:
     assert live.status_code == 200
     assert root.status_code == 503
     assert root.json()["code"] == "administrator_authentication_unavailable"
-
-
-def test_production_host_rejects_http_supabase_url() -> None:
-    app = create_app(
-        Settings(
-            SUPABASE_URL="http://localhost:54321",
-            SUPABASE_PUBLISHABLE_KEY=SecretStr("sb_publishable_test"),
-            SUPABASE_SECRET_KEY=SecretStr("sb_secret_test"),
-            IPO_STOCK_API_KEY=SecretStr("administrator-secret"),
-        )
-    )
-    client = TestClient(app, base_url="http://api.example.com")
-
-    response = client.get("/")
-
-    assert response.status_code == 503
-    assert response.json()["code"] == "dependency_unavailable"
 
 
 def test_cors_allows_only_configured_origin(settings: Settings) -> None:

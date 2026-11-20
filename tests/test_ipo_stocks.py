@@ -1,13 +1,10 @@
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
-from postgrest.exceptions import APIError
-from postgrest.types import CountMethod
+from psycopg import errors
 
 from app.core.config import Settings
 from app.main import create_app
@@ -112,82 +109,32 @@ def _list_payload(
     }
 
 
-@dataclass
-class FakeResponse:
-    data: object
-    count: int | None = None
+class FakeDb:
+    def __init__(self, *responses: list[dict[str, Any]] | Exception) -> None:
+        self.responses = list(responses)
+        self.queries: list[tuple[str, tuple[object, ...]]] = []
+        self.rows: list[dict[str, Any]] = []
+        self.closed = False
 
-
-class FakeQuery:
-    def __init__(self, table: str, responses: list[FakeResponse | Exception]) -> None:
-        self.table = table
-        self.responses = responses
-        self.columns: tuple[str, ...] = ()
-        self.count: object | None = None
-        self.filters: list[tuple[str, object]] = []
-        self.ordering: list[tuple[str, bool, bool | None]] = []
-        self.range_values: tuple[int, int] | None = None
-        self.limit_value: int | None = None
-
-    def select(self, *columns: str, count: object | None = None) -> "FakeQuery":
-        self.columns = columns
-        self.count = count
-        return self
-
-    def eq(self, column: str, value: object) -> "FakeQuery":
-        self.filters.append((column, value))
-        return self
-
-    def order(
-        self,
-        column: str,
-        *,
-        desc: bool = False,
-        nullsfirst: bool | None = None,
-    ) -> "FakeQuery":
-        self.ordering.append((column, desc, nullsfirst))
-        return self
-
-    def range(self, start: int, end: int) -> "FakeQuery":
-        self.range_values = (start, end)
-        return self
-
-    def limit(self, value: int) -> "FakeQuery":
-        self.limit_value = value
-        return self
-
-    async def execute(self) -> FakeResponse:
+    async def execute(self, query: str, params: tuple[object, ...] = ()) -> "FakeDb":
+        self.queries.append((query, params))
         response = self.responses.pop(0)
         if isinstance(response, Exception):
             raise response
-        return response
+        self.rows = response
+        return self
 
+    async def fetchall(self) -> list[dict[str, Any]]:
+        return self.rows
 
-class FakeSupabase:
-    def __init__(self, *responses: FakeResponse | Exception) -> None:
-        self.responses = list(responses)
-        self.queries: list[FakeQuery] = []
-
-    def table(self, name: str) -> FakeQuery:
-        query = FakeQuery(name, self.responses)
-        self.queries.append(query)
-        return query
-
-
-class FakeHttpClient:
-    def __init__(self) -> None:
-        self.closed = False
-
-    async def aclose(self) -> None:
+    async def close(self) -> None:
         self.closed = True
 
 
 def _app() -> object:
     return create_app(
         Settings(
-            SUPABASE_URL="https://test.supabase.co",
-            SUPABASE_PUBLISHABLE_KEY="sb_publishable_test",
-            SUPABASE_SECRET_KEY="sb_secret_test",
+            DATABASE_URL="postgresql://app@db.test/ipostock",
             IPO_STOCK_API_KEY="administrator-secret",
         )
     )
@@ -195,19 +142,18 @@ def _app() -> object:
 
 def _client_with_fake_admin(
     monkeypatch: pytest.MonkeyPatch,
-    fake: FakeSupabase,
-) -> tuple[TestClient, list[str], FakeHttpClient]:
-    from app.integrations import supabase
+    fake: FakeDb,
+) -> tuple[TestClient, list[str]]:
+    from app.integrations import db
 
-    received_keys: list[str] = []
-    http_client = FakeHttpClient()
+    connected: list[str] = []
 
-    async def new_client(_: Settings, key: str) -> tuple[Any, FakeHttpClient]:
-        received_keys.append(key)
-        return fake, http_client
+    async def connect(settings: Settings) -> FakeDb:
+        connected.append(settings.DATABASE_URL.get_secret_value())
+        return fake
 
-    monkeypatch.setattr(supabase, "_new_client", new_client)
-    return TestClient(_app()), received_keys, http_client
+    monkeypatch.setattr(db, "connect", connect)
+    return TestClient(_app()), connected
 
 
 def test_ipo_stock_list_requires_administrator_key() -> None:
@@ -217,33 +163,25 @@ def test_ipo_stock_list_requires_administrator_key() -> None:
     assert response.json()["code"] == "invalid_admin_api_key"
 
 
-def test_invalid_administrator_key_does_not_create_secret_client(
+def test_invalid_administrator_key_does_not_connect(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from app.integrations import supabase
-
-    attempted_keys: list[str] = []
-
-    async def unexpected_client(_: Settings, key: str) -> tuple[Any, Any]:
-        attempted_keys.append(key)
-        raise AssertionError("secret client must not be created")
-
-    monkeypatch.setattr(supabase, "_new_client", unexpected_client)
-    response = TestClient(_app()).get(
+    client, connected = _client_with_fake_admin(monkeypatch, FakeDb())
+    response = client.get(
         "/api/v1/ipo-stocks",
         headers={"X-Admin-Key": "wrong-key"},
     )
 
     assert response.status_code == 401
     assert response.json()["code"] == "invalid_admin_api_key"
-    assert attempted_keys == []
+    assert connected == []
 
 
-def test_list_ipo_stocks_uses_secret_client_and_returns_camel_case(
+def test_list_ipo_stocks_reads_view_and_returns_camel_case(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake = FakeSupabase(FakeResponse([OFFERING_ROW], count=1))
-    client, received_keys, http_client = _client_with_fake_admin(monkeypatch, fake)
+    fake = FakeDb([OFFERING_ROW])
+    client, connected = _client_with_fake_admin(monkeypatch, fake)
 
     response = client.get(
         "/api/v1/ipo-stocks?limit=25&offset=0",
@@ -252,11 +190,10 @@ def test_list_ipo_stocks_uses_secret_client_and_returns_camel_case(
 
     assert response.status_code == 200
     assert response.json() == _list_payload([IPO_STOCK_JSON])
-    assert received_keys == ["sb_secret_test"]
-    assert http_client.closed is True
-    assert fake.queries[0].table == "v_offerings"
-    assert fake.queries[0].count == CountMethod.exact
-    assert fake.queries[0].range_values == (0, 999)
+    assert connected == ["postgresql://app@db.test/ipostock"]
+    assert fake.closed is True
+    assert "from ipostock.v_offerings order by id" in fake.queries[0][0]
+    assert fake.queries[0][1] == ()
 
 
 def test_ipo_stock_writes_are_not_routed() -> None:
@@ -297,30 +234,28 @@ def test_get_ipo_stock_exposes_view_columns_and_status_raw(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     today = datetime.now(tz=ZoneInfo("Asia/Seoul")).date()
-    fake = FakeSupabase(
-        FakeResponse(
-            [
-                {
-                    "id": 36,
-                    "source_no": "2304",
-                    "name": "해치텍",
-                    "stock_code": "0155E0",
-                    "market": "코스닥",
-                    "status": "공모주",
-                    "underwriters": "DB증권",
-                    "hope_price": "23,000 ~ 28,000 원",
-                    "hope_price_low": 23000,
-                    "final_price": "23,000 원",
-                    "final_price_krw": 23000,
-                    "subscribe_start": (today - timedelta(days=5)).isoformat(),
-                    "subscribe_end": (today - timedelta(days=4)).isoformat(),
-                    "listing_date": (today + timedelta(days=8)).isoformat(),
-                    "note": None,
-                }
-            ]
-        )
+    fake = FakeDb(
+        [
+            {
+                "id": 36,
+                "source_no": "2304",
+                "name": "해치텍",
+                "stock_code": "0155E0",
+                "market": "코스닥",
+                "status": "공모주",
+                "underwriters": "DB증권",
+                "hope_price": "23,000 ~ 28,000 원",
+                "hope_price_low": 23000,
+                "final_price": "23,000 원",
+                "final_price_krw": 23000,
+                "subscribe_start": (today - timedelta(days=5)).isoformat(),
+                "subscribe_end": (today - timedelta(days=4)).isoformat(),
+                "listing_date": (today + timedelta(days=8)).isoformat(),
+                "note": None,
+            }
+        ]
     )
-    client, _, _ = _client_with_fake_admin(monkeypatch, fake)
+    client, _ = _client_with_fake_admin(monkeypatch, fake)
 
     response = client.get(
         "/api/v1/ipo-stocks/36",
@@ -346,8 +281,8 @@ def test_get_ipo_stock_exposes_view_columns_and_status_raw(
 def test_get_ipo_stock_ignores_unknown_database_columns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake = FakeSupabase(FakeResponse([{**OFFERING_ROW, "sector": "tech"}]))
-    client, _, _ = _client_with_fake_admin(monkeypatch, fake)
+    fake = FakeDb([{**OFFERING_ROW, "sector": "tech"}])
+    client, _ = _client_with_fake_admin(monkeypatch, fake)
 
     response = client.get(
         f"/api/v1/ipo-stocks/{IPO_STOCK['id']}",
@@ -361,8 +296,8 @@ def test_get_ipo_stock_ignores_unknown_database_columns(
 def test_get_ipo_stock_returns_camel_case_or_not_found(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake = FakeSupabase(FakeResponse([OFFERING_ROW]), FakeResponse([]))
-    client, _, _ = _client_with_fake_admin(monkeypatch, fake)
+    fake = FakeDb([OFFERING_ROW], [])
+    client, _ = _client_with_fake_admin(monkeypatch, fake)
 
     found = client.get(
         f"/api/v1/ipo-stocks/{IPO_STOCK['id']}",
@@ -375,32 +310,19 @@ def test_get_ipo_stock_returns_camel_case_or_not_found(
 
     assert found.status_code == 200
     assert found.json() == IPO_STOCK_JSON
-    assert fake.queries[0].table == "v_offerings"
-    assert fake.queries[0].limit_value == 1
+    assert fake.queries[0] == (
+        "select * from ipostock.v_offerings where id = %s limit 1",
+        (IPO_STOCK["id"],),
+    )
     assert missing.status_code == 404
     assert missing.json()["code"] == "ipo_stock_not_found"
-
-
-def test_list_ipo_stocks_rejects_missing_count(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake = FakeSupabase(FakeResponse([OFFERING_ROW], count=None))
-    client, _, _ = _client_with_fake_admin(monkeypatch, fake)
-
-    response = client.get(
-        "/api/v1/ipo-stocks",
-        headers={"X-Admin-Key": "administrator-secret"},
-    )
-
-    assert response.status_code == 502
-    assert response.json()["code"] == "database_response_invalid"
 
 
 def test_get_ipo_stock_rejects_invalid_row_shape(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake = FakeSupabase(FakeResponse([{"id": IPO_STOCK["id"]}]))
-    client, _, _ = _client_with_fake_admin(monkeypatch, fake)
+    fake = FakeDb([{"id": IPO_STOCK["id"]}])
+    client, _ = _client_with_fake_admin(monkeypatch, fake)
 
     response = client.get(
         f"/api/v1/ipo-stocks/{IPO_STOCK['id']}",
@@ -414,17 +336,8 @@ def test_get_ipo_stock_rejects_invalid_row_shape(
 def test_ipo_stock_maps_access_denied(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fake = FakeSupabase(
-        APIError(
-            {
-                "code": "42501",
-                "message": "private privilege detail",
-                "details": None,
-                "hint": None,
-            }
-        )
-    )
-    client, _, _ = _client_with_fake_admin(monkeypatch, fake)
+    fake = FakeDb(errors.InsufficientPrivilege("private privilege detail"))
+    client, _ = _client_with_fake_admin(monkeypatch, fake)
 
     response = client.get(
         "/api/v1/ipo-stocks",
@@ -434,111 +347,6 @@ def test_ipo_stock_maps_access_denied(
     assert response.status_code == 403
     assert response.json()["code"] == "database_access_denied"
     assert "private privilege detail" not in response.text
-
-
-def test_ipo_stocks_migration_keeps_data_api_roles_unprivileged() -> None:
-    migration = next(
-        (Path(__file__).parents[1] / "supabase" / "migrations").glob(
-            "*_add_ipo_stocks_table.sql"
-        )
-    ).read_text()
-
-    assert "create table if not exists ipo_stock.ipo_stocks" in migration
-    assert "alter table ipo_stock.ipo_stocks enable row level security;" in migration
-    assert (
-        "revoke all privileges on schema ipo_stock from public, anon, authenticated;"
-        in migration
-    )
-    assert (
-        "revoke all privileges on table ipo_stock.ipo_stocks from public, anon, authenticated;"
-        in migration
-    )
-    assert "grant usage on schema ipo_stock to service_role;" in migration
-    assert (
-        "grant select, insert, update, delete on table ipo_stock.ipo_stocks to service_role;"
-        in migration
-    )
-
-
-def test_schema_admin_migration_keeps_functions_service_role_only() -> None:
-    migration = next(
-        (Path(__file__).parents[1] / "supabase" / "migrations").glob(
-            "*_add_schema_admin_functions.sql"
-        )
-    ).read_text()
-
-    assert "create or replace function ipo_stock.schema_list_tables()" in migration
-    assert "create or replace function ipo_stock.schema_add_column(" in migration
-    assert "create or replace function ipo_stock.schema_drop_column(" in migration
-    assert "pg_notify('pgrst', 'reload schema')" in migration
-    assert (
-        "revoke all on function ipo_stock.schema_list_tables() from public, anon, authenticated;"
-        in migration
-    )
-    assert (
-        "grant execute on function ipo_stock.schema_list_tables() to service_role;"
-        in migration
-    )
-    hyphen = next(
-        (Path(__file__).parents[1] / "supabase" / "migrations").glob(
-            "*_add_ipo_stock_hyphen_schema_admin.sql"
-        )
-    ).read_text()
-    assert 'create or replace function "ipo-stock".schema_list_tables()' in hyphen
-    assert 'create or replace function "ipo-stock".schema_list_routines()' in hyphen
-    assert (
-        'revoke all on function "ipo-stock".schema_list_routines() from public, anon, authenticated;'
-        in hyphen
-    )
-    revoke = next(
-        (Path(__file__).parents[1] / "supabase" / "migrations").glob(
-            "*_revoke_ipo_stock_backfill_from_data_api.sql"
-        )
-    ).read_text()
-    assert (
-        'revoke all on function "ipo-stock".backfill_batch(json) from public, anon, authenticated;'
-        in revoke
-    )
-
-
-def test_v_offerings_wrapper_migration_is_service_role_select_only() -> None:
-    migration = next(
-        (Path(__file__).parents[1] / "supabase" / "migrations").glob(
-            "*_add_ipo_stock_v_offerings_view.sql"
-        )
-    ).read_text()
-
-    assert "create schema if not exists ipo_stock;" in migration
-    assert "with (security_invoker = true)" in migration
-    assert 'as select * from "ipo-stock".v_offerings' in migration
-    assert (
-        "revoke all on table ipo_stock.v_offerings from public, anon, authenticated"
-        in migration
-    )
-    assert "grant select on table ipo_stock.v_offerings to service_role" in migration
-    assert "grant insert" not in migration.lower()
-    assert "grant update" not in migration.lower()
-    assert "grant delete" not in migration.lower()
-    assert "notify pgrst, 'reload schema'" in migration
-
-
-def test_v_offerings_status_norm_migration_is_select_only() -> None:
-    migration = next(
-        (Path(__file__).parents[1] / "supabase" / "migrations").glob(
-            "*_enrich_ipo_stock_v_offerings_status_norm.sql"
-        )
-    ).read_text()
-
-    assert "status_norm" in migration
-    assert "with (security_invoker = true)" in migration
-    assert 'from "ipo-stock".v_offerings as src' in migration
-    assert (
-        "revoke all on table ipo_stock.v_offerings from public, anon, authenticated"
-        in migration
-    )
-    assert "grant select on table ipo_stock.v_offerings to service_role" in migration
-    assert "grant insert" not in migration.lower()
-    assert "notify pgrst, 'reload schema'" in migration
 
 
 def test_list_ipo_stocks_filters_and_keeps_global_summary(
@@ -567,12 +375,12 @@ def test_list_ipo_stocks_filters_and_keeps_global_summary(
         "listing_date": "2020-01-10",
         "note": None,
     }
-    fake = FakeSupabase(
-        FakeResponse([scheduled, listed], count=2),
-        FakeResponse([scheduled, listed], count=2),
-        FakeResponse([scheduled, listed], count=2),
+    fake = FakeDb(
+        [scheduled, listed],
+        [scheduled, listed],
+        [scheduled, listed],
     )
-    client, _, _ = _client_with_fake_admin(monkeypatch, fake)
+    client, _ = _client_with_fake_admin(monkeypatch, fake)
 
     filtered = client.get(
         "/api/v1/ipo-stocks?q=스카이&pipeline=true",
