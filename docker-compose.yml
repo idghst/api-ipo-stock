@@ -1,0 +1,28 @@
+# 맥미니 배포: Cloudflare → cloudflared → proxy:80(web 네트워크) → 이 컨테이너:8000. 호스트 포트는 열지 않는다.
+# 공용 Postgres(project/데이터베이스의 postgres 컨테이너)가 ipo-stock-internal 에 db 별칭으로 붙는다.
+# env 파일은 워크트리 밖 저장소 루트의 .env.macmini(600, git 제외). DATABASE_URL=postgresql://ipostock_app:...@db:5432/ipostock
+name: api-ipo-stock
+services:
+  api-ipo-stock:
+    build: .
+    image: api-ipo-stock:macmini
+    container_name: api-ipo-stock  # proxy 가 web 네트워크에서 이 이름으로 찾는다
+    restart: unless-stopped
+    env_file: ${API_IPO_STOCK_ENV_FILE:-/Volumes/Sandisk/Users/idghst/project/ipo-stock/api-ipo-stock/.env.macmini}
+    expose: ["8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live')"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}
+    networks: [web, internal]
+networks:
+  web:
+    external: true
+  # 처음 한 번: docker network create ipo-stock-internal (postgres 쪽 compose 도 external 로 붙는다)
+  internal:
+    name: ipo-stock-internal
+    external: true

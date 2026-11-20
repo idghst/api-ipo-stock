@@ -52,26 +52,15 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
                 if (
                     isinstance(settings, Settings)
                     and request.url.path != "/health/live"
+                    and settings.IPO_STOCK_API_KEY is None
                 ):
-                    if settings.SUPABASE_URL.scheme != "https":
-                        status = 503
-                        return _error_response(
-                            request,
-                            503,
-                            "dependency_unavailable",
-                            "Supabase is unavailable",
-                        )
-                    if (
-                        settings.SUPABASE_SECRET_KEY is None
-                        or settings.IPO_STOCK_API_KEY is None
-                    ):
-                        status = 503
-                        return _error_response(
-                            request,
-                            503,
-                            "administrator_authentication_unavailable",
-                            "Administrator authentication is unavailable",
-                        )
+                    status = 503
+                    return _error_response(
+                        request,
+                        503,
+                        "administrator_authentication_unavailable",
+                        "Administrator authentication is unavailable",
+                    )
             response = await call_next(request)
             status = response.status_code
             response.headers["X-Request-ID"] = request_id
